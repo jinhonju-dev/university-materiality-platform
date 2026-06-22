@@ -18,23 +18,45 @@ from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .export import create_csv_export, create_excel_export
 from .matrix_image import create_matrix_png
-from .models import AuditLog, InvitationCode, StakeholderGroup, SurveyCampaign, SurveyDraft, SurveyResponse, Topic, TopicScore, User
+from .models import (
+    AuditLog,
+    ConcernSurveyResponse,
+    ConcernSurveyScore,
+    ExpertAssessmentResponse,
+    ExpertAssessmentScore,
+    InvitationCode,
+    StakeholderGroup,
+    SurveyCampaign,
+    SurveyDraft,
+    SurveyResponse,
+    Topic,
+    TopicScore,
+    User,
+)
 from .report import create_materiality_report
 from .schemas import (
     AIAnalysisGenerateRequest,
     AIAnalysisVersionOut,
+    AdminPasswordReset,
+    AdminUserCreate,
+    AdminUserUpdate,
     AnalyticsOut,
     AnonymousSurveyDraftIn,
     AnonymousSurveySubmit,
+    AuditLogOut,
     CampaignAdminOut,
     CampaignCreate,
     CampaignOut,
     CampaignUpdate,
+    ConcernSurveySubmit,
+    ExpertSurveySubmit,
     InvitationCodeOut,
     InvitationGenerateRequest,
     InviteLoginRequest,
     LoginRequest,
     MaterialityReportRequest,
+    PublicSurveyConfig,
+    PublicSurveySubmitOut,
     StakeholderGroupAdminOut,
     StakeholderGroupCreate,
     StakeholderGroupUpdate,
@@ -47,8 +69,9 @@ from .schemas import (
     TopicOut,
     TopicUpdate,
     UserOut,
+    UserAdminOut,
 )
-from .security import create_access_token, get_current_principal, get_current_user, require_admin, verify_password
+from .security import create_access_token, get_current_principal, get_current_user, require_admin, require_report_viewer, require_super_admin, verify_password, hash_password
 from .seed import seed_database
 
 
@@ -119,6 +142,11 @@ def validate_topic_coverage(db: Session, scores) -> None:
         raise HTTPException(status_code=422, detail="Please score every active topic before submitting.")
 
 
+def average_known(values: list[int | None]) -> float:
+    known = [value for value in values if value is not None]
+    return round(sum(known) / len(known), 2) if known else 0.0
+
+
 def invitation_code_value(length: int = 10) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return "-".join(
@@ -153,6 +181,7 @@ def invitation_out(invitation: InvitationCode) -> InvitationCodeOut:
         stakeholder_group_id=invitation.stakeholder_group_id,
         stakeholder_group_name=invitation.stakeholder_group.name,
         label=invitation.label,
+        survey_type=invitation.survey_type,
         is_active=invitation.is_active,
         used_at=invitation.used_at,
         created_at=invitation.created_at,
@@ -202,7 +231,24 @@ def score_models(response_id: int, scores) -> list[TopicScore]:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": settings.app_name}
+    return {"status": "ok", "service": settings.app_name, "mode": settings.app_mode}
+
+
+@app.get("/api/system/mode")
+def system_mode():
+    return {"mode": settings.app_mode, "demo": settings.app_mode == "demo"}
+
+
+@app.get("/api/public/survey-config", response_model=PublicSurveyConfig)
+def public_survey_config(db: Session = Depends(get_db)):
+    campaign = db.scalar(
+        select(SurveyCampaign).where(SurveyCampaign.status == "active").order_by(SurveyCampaign.year.desc())
+    )
+    if not campaign:
+        raise HTTPException(status_code=404, detail="No active survey campaign.")
+    topics = db.scalars(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.sort_order)).all()
+    groups = db.scalars(select(StakeholderGroup).where(StakeholderGroup.is_active.is_(True)).order_by(StakeholderGroup.scope, StakeholderGroup.name)).all()
+    return {"app_mode": settings.app_mode, "campaign": campaign, "topics": topics, "stakeholder_groups": groups}
 
 
 @app.post("/api/auth/login", response_model=TokenOut)
@@ -239,6 +285,88 @@ def invite_login(payload: InviteLoginRequest, db: Session = Depends(get_db)):
 @app.get("/api/auth/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@app.get("/api/admin/users", response_model=list[UserAdminOut])
+def list_admin_users(
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(select(User).where(User.role.in_(["super_admin", "admin", "reviewer"])).order_by(User.role, User.email)).all()
+
+
+@app.post("/api/admin/users", response_model=UserAdminOut)
+def create_admin_user(
+    payload: AdminUserCreate,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if db.scalar(select(User).where(User.email == payload.email)):
+        raise HTTPException(status_code=409, detail="Email already exists.")
+    group = db.get(StakeholderGroup, payload.stakeholder_group_id)
+    if not group or not group.is_active:
+        raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
+    created = User(
+        email=payload.email,
+        name=payload.name,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        stakeholder_group_id=group.id,
+    )
+    db.add(created)
+    db.flush()
+    log_event(db, "create_admin_user", "user", str(created.id), user=user, detail=created.role)
+    db.commit()
+    db.refresh(created)
+    return created
+
+
+@app.patch("/api/admin/users/{user_id}", response_model=UserAdminOut)
+def update_admin_user(
+    user_id: int,
+    payload: AdminUserUpdate,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    updates = payload.model_dump(exclude_unset=True)
+    if "stakeholder_group_id" in updates:
+        group = db.get(StakeholderGroup, updates["stakeholder_group_id"])
+        if not group or not group.is_active:
+            raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
+    for key, value in updates.items():
+        setattr(target, key, value)
+    log_event(db, "update_admin_user", "user", str(target.id), user=user, detail=json.dumps(updates, ensure_ascii=False))
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", response_model=UserAdminOut)
+def reset_admin_password(
+    user_id: int,
+    payload: AdminPasswordReset,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    target.password_hash = hash_password(payload.password)
+    log_event(db, "reset_admin_password", "user", str(target.id), user=user)
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@app.get("/api/admin/audit-logs", response_model=list[AuditLogOut])
+def list_audit_logs(
+    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(500)).all()
 
 
 @app.get("/api/topics", response_model=list[TopicOut])
@@ -616,6 +744,87 @@ def submit_anonymous_survey(payload: AnonymousSurveySubmit, db: Session = Depend
     return {"campaign_id": campaign.id, "submitted": True, "submitted_at": response.submitted_at}
 
 
+@app.post("/api/surveys/concern", response_model=PublicSurveySubmitOut)
+def submit_concern_survey(payload: ConcernSurveySubmit, db: Session = Depends(get_db)):
+    campaign = db.get(SurveyCampaign, payload.campaign_id)
+    if not campaign or not is_campaign_open(campaign):
+        raise HTTPException(status_code=400, detail="Survey campaign is not open.")
+    group = db.get(StakeholderGroup, payload.stakeholder_group_id)
+    if not group or not group.is_active:
+        raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
+    validate_topic_coverage(db, payload.scores)
+    response = ConcernSurveyResponse(
+        campaign_id=campaign.id,
+        stakeholder_group_id=group.id,
+        open_answer=payload.open_answer,
+    )
+    db.add(response)
+    db.flush()
+    response.scores = [
+        ConcernSurveyScore(response_id=response.id, topic_id=score.topic_id, concern_score=score.concern_score)
+        for score in payload.scores
+    ]
+    log_event(db, "concern_survey_submit", "survey_campaign", str(campaign.id), detail=f"group={group.name}")
+    db.commit()
+    db.refresh(response)
+    return {"campaign_id": campaign.id, "submitted": True, "submitted_at": response.submitted_at}
+
+
+@app.post("/api/surveys/expert", response_model=PublicSurveySubmitOut)
+def submit_expert_assessment(payload: ExpertSurveySubmit, db: Session = Depends(get_db)):
+    campaign = db.get(SurveyCampaign, payload.campaign_id)
+    if not campaign or not is_campaign_open(campaign):
+        raise HTTPException(status_code=400, detail="Survey campaign is not open.")
+    invitation = resolve_invitation(db, payload.campaign_id, payload.invitation_code)
+    if invitation.survey_type != "expert":
+        raise HTTPException(status_code=403, detail="Invitation code is not valid for expert assessment.")
+    if invitation.used_at:
+        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
+    validate_topic_coverage(db, payload.scores)
+    response = ExpertAssessmentResponse(
+        campaign_id=campaign.id,
+        invitation_code_id=invitation.id,
+        stakeholder_group_id=invitation.stakeholder_group_id,
+        open_answer=payload.open_answer,
+    )
+    db.add(response)
+    db.flush()
+    response.scores = [
+        ExpertAssessmentScore(
+            response_id=response.id,
+            topic_id=score.topic_id,
+            impact_likelihood_score=score.impact_likelihood_score,
+            positive_impact_score=score.positive_impact_score,
+            negative_impact_score=score.negative_impact_score,
+            admissions_revenue_score=score.admissions_revenue_score,
+            reputation_score=score.reputation_score,
+            operating_cost_score=score.operating_cost_score,
+            funding_score=score.funding_score,
+            legal_liability_score=score.legal_liability_score,
+            financial_likelihood_score=score.financial_likelihood_score,
+            impact_score=average_known([
+                score.impact_likelihood_score,
+                score.positive_impact_score,
+                score.negative_impact_score,
+            ]),
+            financial_score=average_known([
+                score.admissions_revenue_score,
+                score.reputation_score,
+                score.operating_cost_score,
+                score.funding_score,
+                score.legal_liability_score,
+                score.financial_likelihood_score,
+            ]),
+        )
+        for score in payload.scores
+    ]
+    invitation.used_at = datetime.now(timezone.utc)
+    log_event(db, "expert_assessment_submit", "survey_campaign", str(campaign.id), detail=f"invitation_id={invitation.id}")
+    db.commit()
+    db.refresh(response)
+    return {"campaign_id": campaign.id, "submitted": True, "submitted_at": response.submitted_at}
+
+
 def get_campaign_or_404(db: Session, campaign_id: int | None) -> SurveyCampaign:
     campaign = (
         db.get(SurveyCampaign, campaign_id)
@@ -645,7 +854,7 @@ def decode_matrix_png(matrix_png_base64: str | None) -> bytes | None:
 @app.get("/api/analytics", response_model=AnalyticsOut)
 def analytics(
     campaign_id: int | None = None,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
 ):
     return build_analytics(db, get_campaign_or_404(db, campaign_id))
@@ -696,7 +905,7 @@ def generate_ai_analysis_endpoint(
 @app.get("/api/reports/materiality.docx")
 def download_report(
     campaign_id: int | None = None,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
 ):
     campaign = get_campaign_or_404(db, campaign_id)
@@ -714,7 +923,7 @@ def download_report(
 @app.post("/api/reports/materiality.docx")
 def download_report_with_matrix(
     payload: MaterialityReportRequest,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
 ):
     campaign = get_campaign_or_404(db, payload.campaign_id)
@@ -732,7 +941,7 @@ def download_report_with_matrix(
 @app.get("/api/exports/materiality-matrix.png")
 def download_matrix_png(
     campaign_id: int | None = None,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
 ):
     campaign = get_campaign_or_404(db, campaign_id)

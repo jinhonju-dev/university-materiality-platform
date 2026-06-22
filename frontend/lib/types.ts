@@ -15,7 +15,7 @@ export type User = {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "respondent";
+  role: "super_admin" | "admin" | "reviewer" | "respondent";
   stakeholder_group: StakeholderGroup;
 };
 
@@ -64,9 +64,17 @@ export type InvitationCode = {
   stakeholder_group_id: number;
   stakeholder_group_name: string;
   label: string | null;
+  survey_type: string;
   is_active: boolean;
   used_at: string | null;
   created_at: string;
+};
+
+export type PublicSurveyConfig = {
+  app_mode: string;
+  campaign: Campaign;
+  topics: Topic[];
+  stakeholder_groups: StakeholderGroup[];
 };
 
 export type TopicMetric = {

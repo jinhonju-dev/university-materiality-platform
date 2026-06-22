@@ -36,9 +36,7 @@ TOPICS = [
 def seed_database(db: Session) -> None:
     settings = get_settings()
     if not db.scalar(select(StakeholderGroup.id).limit(1)):
-        db.add_all(
-            [StakeholderGroup(name=name, scope=scope, weight=weight) for name, scope, weight in GROUPS]
-        )
+        db.add_all([StakeholderGroup(name=name, scope=scope, weight=weight) for name, scope, weight in GROUPS])
         db.flush()
 
     if not db.scalar(select(Topic.id).limit(1)):
@@ -70,41 +68,32 @@ def seed_database(db: Session) -> None:
             db.add(
                 User(
                     email=settings.bootstrap_admin_email,
-                    name="系統管理者",
+                    name="系統超級管理者",
                     password_hash=hash_password(settings.bootstrap_admin_password),
-                    role="admin",
+                    role="super_admin",
                     stakeholder_group_id=teacher_group.id,
                 )
             )
 
-    if settings.seed_demo_accounts and teacher_group and student_group:
+    if settings.app_mode == "demo" and settings.seed_demo_accounts and teacher_group and student_group:
         if not db.scalar(select(User).where(User.email == "admin@nuk.edu.tw")):
             db.add(
                 User(
                     email="admin@nuk.edu.tw",
                     name="示範管理者",
                     password_hash=hash_password("admin123"),
-                    role="admin",
+                    role="super_admin",
                     stakeholder_group_id=teacher_group.id,
                 )
             )
-        if not db.scalar(select(User).where(User.email == "student@nuk.edu.tw")):
-            db.add(
-                User(
-                    email="student@nuk.edu.tw",
-                    name="示範填答者",
-                    password_hash=hash_password("survey123"),
-                    role="respondent",
-                    stakeholder_group_id=student_group.id,
-                )
-            )
-        if campaign and not db.scalar(select(InvitationCode).where(InvitationCode.code == "DEMO-STUDENT")):
+        if campaign and not db.scalar(select(InvitationCode).where(InvitationCode.code == "DEMO-EXPERT")):
             db.add(
                 InvitationCode(
                     campaign_id=campaign.id,
-                    code="DEMO-STUDENT",
+                    code="DEMO-EXPERT",
                     stakeholder_group_id=student_group.id,
-                    label="Demo anonymous student invitation",
+                    survey_type="expert",
+                    label="Demo expert invitation",
                 )
             )
     db.commit()

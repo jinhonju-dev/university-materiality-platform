@@ -40,19 +40,21 @@ export function AppShell({
   user: User;
   onLogout: () => void;
 }) {
-  const [view, setView] = useState(user.role === "admin" ? "dashboard" : "survey");
+  const [view, setView] = useState(user.role !== "respondent" ? "dashboard" : "survey");
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    setView(user.role === "admin" ? "dashboard" : "survey");
+    setView(user.role !== "respondent" ? "dashboard" : "survey");
   }, [user]);
 
-  const nav: NavItem[] = user.role === "admin" ? [
+  const canEdit = user.role === "super_admin" || user.role === "admin";
+  const nav: NavItem[] = user.role !== "respondent" ? [
     { id: "dashboard", label: "分析儀表板", icon: BarChart3 },
-    { id: "survey", label: "問卷填答", icon: ClipboardList },
-    { id: "stakeholders", label: "利害關係人", icon: Users },
-    { id: "topics", label: "議題庫", icon: Database },
-    { id: "campaigns", label: "問卷活動", icon: CalendarDays },
+    ...(canEdit ? [
+      { id: "stakeholders", label: "利害關係人", icon: Users },
+      { id: "topics", label: "議題庫", icon: Database },
+      { id: "campaigns", label: "問卷活動", icon: CalendarDays },
+    ] : []),
     { id: "reports", label: "報告管理", icon: FileOutput },
   ] : [
     { id: "survey", label: "重大性問卷", icon: ClipboardList },

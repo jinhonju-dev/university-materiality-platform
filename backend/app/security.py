@@ -112,6 +112,18 @@ def get_current_principal(
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "admin":
+    if user.role not in {"super_admin", "admin"}:
         raise HTTPException(status_code=403, detail="Administrator permission required.")
+    return user
+
+
+def require_super_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super administrator permission required.")
+    return user
+
+
+def require_report_viewer(user: User = Depends(get_current_user)) -> User:
+    if user.role not in {"super_admin", "admin", "reviewer"}:
+        raise HTTPException(status_code=403, detail="Report viewer permission required.")
     return user

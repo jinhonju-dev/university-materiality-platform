@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "University Materiality Platform API"
+    app_mode: str = "production"
     database_url: str = "sqlite:///./materiality.db"
     secret_key: str = "change-this-secret-in-production"
     access_token_minutes: int = 480

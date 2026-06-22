@@ -55,10 +55,67 @@ create table if not exists invitation_codes (
   code varchar(80) not null,
   stakeholder_group_id integer not null references stakeholder_groups(id),
   label varchar(120),
+  survey_type varchar(30) not null default 'expert',
   is_active boolean not null default true,
   used_at timestamptz,
   created_at timestamptz not null default now(),
   constraint uq_campaign_invitation_code unique (campaign_id, code)
+);
+
+create table if not exists concern_survey_responses (
+  id serial primary key,
+  campaign_id integer not null references survey_campaigns(id),
+  stakeholder_group_id integer not null references stakeholder_groups(id),
+  open_answer text,
+  submitted_at timestamptz not null default now()
+);
+
+create table if not exists concern_survey_scores (
+  id serial primary key,
+  response_id integer not null references concern_survey_responses(id) on delete cascade,
+  topic_id integer not null references topics(id),
+  concern_score integer not null,
+  constraint uq_concern_response_topic unique (response_id, topic_id),
+  constraint ck_concern_score_1_to_5 check (concern_score between 1 and 5)
+);
+
+create table if not exists expert_assessment_responses (
+  id serial primary key,
+  campaign_id integer not null references survey_campaigns(id),
+  invitation_code_id integer not null references invitation_codes(id),
+  stakeholder_group_id integer not null references stakeholder_groups(id),
+  open_answer text,
+  submitted_at timestamptz not null default now(),
+  constraint uq_expert_campaign_invitation unique (campaign_id, invitation_code_id)
+);
+
+create table if not exists expert_assessment_scores (
+  id serial primary key,
+  response_id integer not null references expert_assessment_responses(id) on delete cascade,
+  topic_id integer not null references topics(id),
+  impact_likelihood_score integer,
+  positive_impact_score integer,
+  negative_impact_score integer,
+  admissions_revenue_score integer,
+  reputation_score integer,
+  operating_cost_score integer,
+  funding_score integer,
+  legal_liability_score integer,
+  financial_likelihood_score integer,
+  impact_score double precision not null default 0,
+  financial_score double precision not null default 0,
+  constraint uq_expert_response_topic unique (response_id, topic_id),
+  constraint ck_expert_scores_1_to_5 check (
+    coalesce(impact_likelihood_score, 1) between 1 and 5
+    and coalesce(positive_impact_score, 1) between 1 and 5
+    and coalesce(negative_impact_score, 1) between 1 and 5
+    and coalesce(admissions_revenue_score, 1) between 1 and 5
+    and coalesce(reputation_score, 1) between 1 and 5
+    and coalesce(operating_cost_score, 1) between 1 and 5
+    and coalesce(funding_score, 1) between 1 and 5
+    and coalesce(legal_liability_score, 1) between 1 and 5
+    and coalesce(financial_likelihood_score, 1) between 1 and 5
+  )
 );
 
 create table if not exists survey_drafts (
@@ -143,6 +200,8 @@ create index if not exists ix_users_email on users(email);
 create index if not exists ix_topics_code on topics(code);
 create index if not exists ix_topics_category on topics(category);
 create index if not exists ix_invitation_codes_code on invitation_codes(code);
+create index if not exists ix_concern_survey_responses_campaign on concern_survey_responses(campaign_id);
+create index if not exists ix_expert_assessment_responses_campaign on expert_assessment_responses(campaign_id);
 create index if not exists ix_audit_logs_action on audit_logs(action);
 create index if not exists ix_ai_analysis_versions_campaign on ai_analysis_versions(campaign_id);
 

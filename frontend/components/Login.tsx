@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { ArrowRight, BarChart3, Building2, CheckCircle2, Leaf } from "lucide-react";
 
@@ -17,11 +18,8 @@ export function Login({
 }: {
   onLogin: (token: string, user: User) => void;
 }) {
-  const [mode, setMode] = useState<"account" | "invite">("account");
   const [email, setEmail] = useState(DEMO_MODE ? "admin@nuk.edu.tw" : "");
   const [password, setPassword] = useState(DEMO_MODE ? "admin123" : "");
-  const [campaignId, setCampaignId] = useState("1");
-  const [invitationCode, setInvitationCode] = useState(DEMO_MODE ? "DEMO-STUDENT" : "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,31 +28,15 @@ export function Login({
     setLoading(true);
     setError("");
     try {
-      const result = mode === "account"
-        ? await api<LoginResponse>("/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        })
-        : await api<LoginResponse>("/auth/invite", {
-          method: "POST",
-          body: JSON.stringify({ campaign_id: Number(campaignId), invitation_code: invitationCode }),
-        });
+      const result = await api<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
       onLogin(result.access_token, result.user);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "登入失敗，請再試一次。");
+      setError(caught instanceof Error ? caught.message : "登入失敗，請確認帳號密碼。");
     } finally {
       setLoading(false);
-    }
-  }
-
-  function applyDemo(role: "admin" | "respondent") {
-    setMode("account");
-    if (role === "admin") {
-      setEmail("admin@nuk.edu.tw");
-      setPassword("admin123");
-    } else {
-      setEmail("student@nuk.edu.tw");
-      setPassword("survey123");
     }
   }
 
@@ -63,24 +45,22 @@ export function Login({
       <section className="login-story">
         <div className="brand brand-light">
           <span className="brand-mark"><Leaf size={21} /></span>
-          <span>大學永續重大性平台</span>
+          <span>永續重大性評估平台</span>
           <small>Materiality OS</small>
         </div>
         <div className="story-copy">
           <span className="eyebrow">SUSTAINABILITY INTELLIGENCE</span>
-          <h1>正式收集利害關係人問卷，建立可稽核的雙重重大性結果</h1>
-          <p>
-            平台支援登入填答、匿名邀請碼、資料庫永久保存、加權分析與 Excel/CSV 匯出。
-          </p>
+          <h1>大學永續報告書利害關係人調查與雙重重大性評估</h1>
+          <p>正式版支援關注度調查、專家重大性評估、邀請碼、權限控管、資料庫保存與報告匯出。</p>
           <div className="feature-row">
             <span><CheckCircle2 size={17} /> GRI 2021</span>
             <span><CheckCircle2 size={17} /> 雙重重大性</span>
-            <span><CheckCircle2 size={17} /> 去識別化匯出</span>
+            <span><CheckCircle2 size={17} /> 正式資料保存</span>
           </div>
         </div>
         <div className="story-stats">
           <div><Building2 /><strong>9</strong><span>利害關係人類別</span></div>
-          <div><BarChart3 /><strong>3</strong><span>E / S / G 議題面向</span></div>
+          <div><BarChart3 /><strong>2</strong><span>兩階段問卷</span></div>
         </div>
       </section>
 
@@ -89,76 +69,39 @@ export function Login({
           <div className="mobile-brand brand">
             <span className="brand-mark"><Leaf size={20} /></span><span>Materiality OS</span>
           </div>
-          <span className="eyebrow green">WELCOME</span>
-          <h2>進入問卷與管理平台</h2>
-          <p className="muted">正式版不顯示預設帳密；帳號由管理者建立，匿名填答使用一次性邀請碼。</p>
-          {DEMO_MODE && <div className="demo-notice">Demo mode 使用示範資料，不會永久保存問卷資料。</div>}
+          <span className="eyebrow green">{DEMO_MODE ? "展示模式" : "Production Mode"}</span>
+          <h2>管理者登入</h2>
+          <p className="muted">
+            填答者不需要正式帳號。關注度調查請使用公開連結；專家重大性評估請使用管理者核發的邀請碼。
+          </p>
+          {DEMO_MODE && <div className="demo-notice">展示模式：使用展示資料與展示帳號，不會永久保存正式問卷。</div>}
 
-          <div className="language-switch">
-            <button type="button" className={mode === "account" ? "active" : ""} onClick={() => setMode("account")}>帳號登入</button>
-            <button type="button" className={mode === "invite" ? "active" : ""} onClick={() => setMode("invite")}>邀請碼填答</button>
-          </div>
-
-          {mode === "account" ? (
-            <>
-              <label>
-                Email
-                <input
-                  aria-label="Email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                密碼
-                <input
-                  aria-label="密碼"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
-              </label>
-            </>
-          ) : (
-            <>
-              <label>
-                問卷活動 ID
-                <input
-                  aria-label="問卷活動 ID"
-                  inputMode="numeric"
-                  value={campaignId}
-                  onChange={(event) => setCampaignId(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                匿名邀請碼
-                <input
-                  aria-label="匿名邀請碼"
-                  value={invitationCode}
-                  onChange={(event) => setInvitationCode(event.target.value)}
-                  required
-                />
-              </label>
-            </>
-          )}
+          <label>
+            Email
+            <input aria-label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label>
+          <label>
+            密碼
+            <input aria-label="密碼" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          </label>
 
           {error && <div className="form-error">{error}</div>}
           <button className="button primary login-button" disabled={loading}>
-            {loading ? "處理中..." : "進入平台"} <ArrowRight size={17} />
+            {loading ? "登入中..." : "登入管理後台"} <ArrowRight size={17} />
           </button>
 
           {DEMO_MODE && (
             <div className="demo-box">
-              <span>示範帳號</span>
-              <button type="button" onClick={() => applyDemo("admin")}>管理者</button>
-              <button type="button" onClick={() => applyDemo("respondent")}>填答者</button>
+              <span>展示帳號</span>
+              <button type="button" onClick={() => { setEmail("admin@nuk.edu.tw"); setPassword("admin123"); }}>帶入展示管理者</button>
             </div>
           )}
-          <p className="privacy-note">問卷資料僅供永續報告書重大性分析使用；匯出時提供去識別化版本。</p>
+
+          <div className="button-row">
+            <Link className="button secondary" href="/survey/concern">填寫關注度調查</Link>
+            <Link className="button secondary" href="/survey/expert">專家重大性評估</Link>
+          </div>
+          <p className="privacy-note">Production Mode 不會產生 demo 帳號，也不使用 admin123 / survey123 作為正式密碼。</p>
         </form>
       </section>
     </main>

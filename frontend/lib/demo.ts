@@ -40,27 +40,29 @@ const demoScores = [
   [4.39, 4.44, 4.63],
 ];
 
+export const demoStakeholderGroups: StakeholderGroupAdmin[] = [
+  { id: 1, name: "學生", scope: "internal", description: "在學學生", weight: 1.0, is_active: true, response_count: 532 },
+  { id: 2, name: "教師", scope: "internal", description: "專任與兼任教師", weight: 1.2, is_active: true, response_count: 205 },
+  { id: 3, name: "職員", scope: "internal", description: "行政與校務人員", weight: 1.1, is_active: true, response_count: 178 },
+  { id: 4, name: "校友", scope: "external", description: "畢業校友", weight: 0.9, is_active: true, response_count: 126 },
+  { id: 5, name: "政府機關", scope: "external", description: "主管機關與地方政府", weight: 1.2, is_active: true, response_count: 35 },
+  { id: 6, name: "企業", scope: "external", description: "企業夥伴", weight: 1.0, is_active: true, response_count: 74 },
+  { id: 7, name: "廠商", scope: "external", description: "供應商與合作廠商", weight: 0.9, is_active: true, response_count: 27 },
+  { id: 8, name: "社區居民", scope: "external", description: "周邊社區", weight: 1.0, is_active: true, response_count: 58 },
+  { id: 9, name: "NGO", scope: "external", description: "非政府組織", weight: 1.1, is_active: true, response_count: 15 },
+];
+
 export const demoAIAnalysis = {
-  zh_summary:
-    "AI 草稿，需人工審閱。示範資料顯示，能源管理、人才培育與資訊安全同時具有較高衝擊重大性與財務重大性，建議納入年度重大主題。",
-  en_summary:
-    "AI draft, human review required. Demo data indicates that energy management, talent development and information security have high impact and financial materiality.",
-  material_topic_ranking:
-    "重大主題排序建議：1. E01 能源管理；2. S02 人才培育與學習發展；3. G01 資訊安全與隱私；4. E02 溫室氣體排放。",
-  stakeholder_difference_analysis:
-    "教師與政府機關對治理與氣候相關議題評分較高；學生對人才培育與學習發展較敏感。正式報告應搭配樣本數與權重解讀差異。",
-  management_recommendations:
-    "建議由責任單位確認各重大主題之管理方針、年度目標、KPI、改善措施與追蹤頻率，並保留人工審閱紀錄。",
-  report_paragraph_zh:
-    "AI 草稿，需人工審閱。本次示範評估依利害關係人回饋與雙重重大性門檻，辨識能源管理、人才培育與資訊安全為優先重大主題。",
-  report_paragraph_en:
-    "AI draft, human review required. The demo assessment identifies energy management, talent development and information security as priority material topics.",
-  gri_3_1:
-    "本校透過利害關係人識別、議題庫建立、問卷評分、衝擊重大性與財務重大性分析、權重設定及管理者審閱，決定年度重大主題。",
-  gri_3_2:
-    "依本次示範評估結果，重大主題包含：E01 能源管理、S02 人才培育與學習發展、G01 資訊安全與隱私。",
-  gri_3_3:
-    "各重大主題須由責任單位確認管理方針、政策承諾、行動方案、有效性追蹤、指標與目標，並於報告書揭露。",
+  zh_summary: "AI 草稿，需人工審閱。示範資料顯示，能源管理、人才培育與資訊安全同時具有較高衝擊重大性與財務重大性。",
+  en_summary: "AI draft, human review required. Demo data indicates that energy management, talent development and information security have high impact and financial materiality.",
+  material_topic_ranking: "重大主題排序建議：1. E01 能源管理；2. S02 人才培育與學習發展；3. G01 資訊安全與隱私。",
+  stakeholder_difference_analysis: "教師與政府機關對治理與氣候相關議題評分較高；學生對人才培育與學習發展較敏感。",
+  management_recommendations: "建議由責任單位確認各重大主題之管理方針、年度目標、KPI、改善措施與追蹤頻率。",
+  report_paragraph_zh: "AI 草稿，需人工審閱。本次示範評估依利害關係人回饋與雙重重大性門檻，辨識能源管理、人才培育與資訊安全為優先重大主題。",
+  report_paragraph_en: "AI draft, human review required. The demo assessment identifies energy management, talent development and information security as priority material topics.",
+  gri_3_1: "本校透過利害關係人識別、議題庫建立、問卷評分、衝擊重大性與財務重大性分析、權重設定及管理者審閱，決定年度重大主題。",
+  gri_3_2: "依本次示範評估結果，重大主題包含：E01 能源管理、S02 人才培育與學習發展、G01 資訊安全與隱私。",
+  gri_3_3: "各重大主題須由責任單位確認管理方針、政策承諾、行動方案、有效性追蹤、指標與目標，並於報告書揭露。",
   disclaimer: "AI 草稿，需人工審閱。",
 };
 
@@ -106,27 +108,20 @@ export const demoAnalytics: Analytics = {
       quadrant: quadrant(impact, financial),
     };
   }),
-  stakeholders: [
-    { id: 1, name: "學生", count: 532, weight: 1.0 },
-    { id: 2, name: "教師", count: 205, weight: 1.2 },
-    { id: 3, name: "職員", count: 178, weight: 1.1 },
-    { id: 4, name: "校友", count: 126, weight: 0.9 },
-  ],
+  stakeholders: demoStakeholderGroups.map((group) => ({ id: group.id, name: group.name, count: group.response_count, weight: group.weight })),
   stakeholder_topics: demoTopics.flatMap((topic, topicIndex) =>
-    [
-      { id: 1, name: "學生", delta: -0.08, count: 532 },
-      { id: 2, name: "教師", delta: 0.12, count: 205 },
-      { id: 3, name: "職員", delta: 0.04, count: 178 },
-      { id: 4, name: "校友", delta: -0.03, count: 126 },
-    ].map((group) => ({
-      stakeholder_group_id: group.id,
-      stakeholder_group_name: group.name,
-      topic_id: topic.id,
-      code: topic.code,
-      impact: Math.min(5, Math.max(1, Number((demoScores[topicIndex][1] + group.delta).toFixed(2)))),
-      financial: Math.min(5, Math.max(1, Number((demoScores[topicIndex][2] + group.delta).toFixed(2)))),
-      response_count: group.count,
-    })),
+    demoStakeholderGroups.slice(0, 4).map((group, groupIndex) => {
+      const delta = [-0.08, 0.12, 0.04, -0.03][groupIndex] || 0;
+      return {
+        stakeholder_group_id: group.id,
+        stakeholder_group_name: group.name,
+        topic_id: topic.id,
+        code: topic.code,
+        impact: Math.min(5, Math.max(1, Number((demoScores[topicIndex][1] + delta).toFixed(2)))),
+        financial: Math.min(5, Math.max(1, Number((demoScores[topicIndex][2] + delta).toFixed(2)))),
+        response_count: group.response_count,
+      };
+    }),
   ),
   keywords: [
     { keyword: "能源", count: 186 },
@@ -138,26 +133,14 @@ export const demoAnalytics: Analytics = {
   analysis_en: demoAIAnalysis.en_summary,
 };
 
-export const demoStakeholderGroups: StakeholderGroupAdmin[] = [
-  { id: 1, name: "學生", scope: "internal", description: "在學學生", weight: 1.0, is_active: true, response_count: 532 },
-  { id: 2, name: "教師", scope: "internal", description: "專任與兼任教師", weight: 1.2, is_active: true, response_count: 205 },
-  { id: 3, name: "職員", scope: "internal", description: "行政與校務人員", weight: 1.1, is_active: true, response_count: 178 },
-  { id: 4, name: "校友", scope: "external", description: "畢業校友", weight: 0.9, is_active: true, response_count: 126 },
-  { id: 5, name: "政府機關", scope: "external", description: "主管機關與地方政府", weight: 1.2, is_active: true, response_count: 35 },
-  { id: 6, name: "企業", scope: "external", description: "企業夥伴", weight: 1.0, is_active: true, response_count: 74 },
-  { id: 7, name: "廠商", scope: "external", description: "供應商與合作廠商", weight: 0.9, is_active: true, response_count: 27 },
-  { id: 8, name: "社區居民", scope: "external", description: "周邊社區", weight: 1.0, is_active: true, response_count: 58 },
-  { id: 9, name: "NGO", scope: "external", description: "非政府組織", weight: 1.1, is_active: true, response_count: 15 },
-];
-
 export const demoCampaigns: CampaignAdmin[] = [
   {
     ...demoCampaign,
     starts_at: "2026-08-01T00:00:00+08:00",
     ends_at: "2026-09-30T23:59:59+08:00",
     response_count: 1250,
-    invitation_count: 1800,
-    used_invitation_count: 840,
+    invitation_count: 50,
+    used_invitation_count: 18,
   },
 ];
 
@@ -165,10 +148,11 @@ export const demoInvitations: InvitationCode[] = [
   {
     id: 1,
     campaign_id: 1,
-    code: "DEMO-STUDENT",
-    stakeholder_group_id: 1,
-    stakeholder_group_name: "學生",
-    label: "Demo student invitation",
+    code: "DEMO-EXPERT",
+    stakeholder_group_id: 2,
+    stakeholder_group_name: "教師",
+    label: "Demo expert invitation",
+    survey_type: "expert",
     is_active: true,
     used_at: null,
     created_at: "2026-08-01T00:00:00+08:00",
@@ -183,20 +167,8 @@ export function demoLogin(email: string, password: string): { access_token: stri
         id: 1,
         email,
         name: "示範管理者",
-        role: "admin",
+        role: "super_admin",
         stakeholder_group: { id: 2, name: "教師", scope: "internal", weight: 1.2 },
-      },
-    };
-  }
-  if (email === "student@nuk.edu.tw" && password === "survey123") {
-    return {
-      access_token: "public-demo-respondent",
-      user: {
-        id: 2,
-        email,
-        name: "示範填答者",
-        role: "respondent",
-        stakeholder_group: { id: 1, name: "學生", scope: "internal", weight: 1.0 },
       },
     };
   }

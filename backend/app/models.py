@@ -83,6 +83,7 @@ class InvitationCode(Base):
     code: Mapped[str] = mapped_column(String(80), index=True)
     stakeholder_group_id: Mapped[int] = mapped_column(ForeignKey("stakeholder_groups.id"))
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    survey_type: Mapped[str] = mapped_column(String(30), default="expert")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -90,6 +91,73 @@ class InvitationCode(Base):
     campaign: Mapped[SurveyCampaign] = relationship(back_populates="invitation_codes")
     stakeholder_group: Mapped[StakeholderGroup] = relationship()
     response: Mapped["SurveyResponse | None"] = relationship(back_populates="invitation_code")
+
+
+class ConcernSurveyResponse(Base):
+    __tablename__ = "concern_survey_responses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
+    stakeholder_group_id: Mapped[int] = mapped_column(ForeignKey("stakeholder_groups.id"))
+    open_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    campaign: Mapped[SurveyCampaign] = relationship()
+    stakeholder_group: Mapped[StakeholderGroup] = relationship()
+    scores: Mapped[list["ConcernSurveyScore"]] = relationship(back_populates="response", cascade="all, delete-orphan")
+
+
+class ConcernSurveyScore(Base):
+    __tablename__ = "concern_survey_scores"
+    __table_args__ = (UniqueConstraint("response_id", "topic_id", name="uq_concern_response_topic"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    response_id: Mapped[int] = mapped_column(ForeignKey("concern_survey_responses.id"))
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"))
+    concern_score: Mapped[int] = mapped_column(Integer)
+
+    response: Mapped[ConcernSurveyResponse] = relationship(back_populates="scores")
+    topic: Mapped[Topic] = relationship()
+
+
+class ExpertAssessmentResponse(Base):
+    __tablename__ = "expert_assessment_responses"
+    __table_args__ = (UniqueConstraint("campaign_id", "invitation_code_id", name="uq_expert_campaign_invitation"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
+    invitation_code_id: Mapped[int] = mapped_column(ForeignKey("invitation_codes.id"))
+    stakeholder_group_id: Mapped[int] = mapped_column(ForeignKey("stakeholder_groups.id"))
+    open_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    campaign: Mapped[SurveyCampaign] = relationship()
+    invitation_code: Mapped[InvitationCode] = relationship()
+    stakeholder_group: Mapped[StakeholderGroup] = relationship()
+    scores: Mapped[list["ExpertAssessmentScore"]] = relationship(back_populates="response", cascade="all, delete-orphan")
+
+
+class ExpertAssessmentScore(Base):
+    __tablename__ = "expert_assessment_scores"
+    __table_args__ = (UniqueConstraint("response_id", "topic_id", name="uq_expert_response_topic"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    response_id: Mapped[int] = mapped_column(ForeignKey("expert_assessment_responses.id"))
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"))
+    impact_likelihood_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    positive_impact_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    negative_impact_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    admissions_revenue_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reputation_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    operating_cost_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    funding_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    legal_liability_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    financial_likelihood_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    impact_score: Mapped[float] = mapped_column(Float, default=0)
+    financial_score: Mapped[float] = mapped_column(Float, default=0)
+
+    response: Mapped[ExpertAssessmentResponse] = relationship(back_populates="scores")
+    topic: Mapped[Topic] = relationship()
 
 
 class SurveyDraft(Base):

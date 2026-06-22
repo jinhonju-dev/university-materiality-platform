@@ -24,6 +24,15 @@ export async function api<T>(
       return result as T;
     }
     if (path === "/topics") return demoTopics as T;
+    if (path === "/system/mode") return { mode: "demo", demo: true } as T;
+    if (path === "/public/survey-config") {
+      return {
+        app_mode: "demo",
+        campaign: demoCampaign,
+        topics: demoTopics,
+        stakeholder_groups: demoStakeholderGroups,
+      } as T;
+    }
     if (path === "/admin/topics" && options.method === "POST") {
       const body = JSON.parse(String(options.body || "{}"));
       return { ...body, id: Date.now(), is_active: true } as T;
@@ -73,7 +82,7 @@ export async function api<T>(
       const updates = options.body ? JSON.parse(String(options.body)) : {};
       return { ...current, ...updates } as T;
     }
-    if (path === "/surveys/submit" || path === "/surveys/submit/anonymous") {
+    if (path === "/surveys/submit" || path === "/surveys/submit/anonymous" || path === "/surveys/concern" || path === "/surveys/expert") {
       return {
         campaign_id: demoCampaign.id,
         submitted: true,

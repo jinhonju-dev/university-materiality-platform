@@ -1,101 +1,90 @@
 # University Materiality Platform
 
-大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。第四階段已補上正式 Word 報告與重大性矩陣圖片輸出。第五階段已補上 AI 分析版本管理與 GRI 章節草稿。
+大學永續報告書利害關係人調查與雙重重大性評估平台。
 
-## 架構
+本次第一階段聚焦正式問卷架構與帳號權限：保留 GitHub Pages 展示版，同時補上 Production Mode、三種管理者角色、公開關注度調查與專家邀請碼重大性評估。
 
-- Frontend: Next.js，GitHub Pages 可部署 demo/static frontend，也可透過 `NEXT_PUBLIC_API_URL` 連到正式後端。
-- Backend: FastAPI + SQLAlchemy。
-- Database: PostgreSQL / Supabase PostgreSQL；本機可用 SQLite 開發。
-- Export: `python-docx` 產生正式 `.docx`，`openpyxl` 產生正式 `.xlsx`。
+## 系統模式
 
-## 第二階段：利害關係人權重與分群分析
+Demo Mode:
 
-- 管理者可於前端「利害關係人」頁面維護各類別權重、說明與啟用狀態。
-- Dashboard 可依 E/S/G 類別與利害關係人類別篩選重大性矩陣。
-- Dashboard 同時呈現未加權平均、加權平均與分群樣本數。
-- 重大性矩陣支援 PNG 下載，Word/Excel 匯出會列出樣本數與權重。
-- 後端管理 API：
-  - `GET /api/admin/stakeholder-groups`
-  - `POST /api/admin/stakeholder-groups`
-  - `PATCH /api/admin/stakeholder-groups/{group_id}`
+- 前端以 `NEXT_PUBLIC_DEMO_MODE=true` 啟用。
+- 畫面會標示「展示模式」。
+- 可使用展示資料與展示帳號。
+- 不作為正式資料保存用途。
 
-## 第三階段：議題庫與問卷活動管理
+Production Mode:
 
-管理者前端已新增：
+- 後端以 `APP_MODE=production` 啟用。
+- 不產生 demo 帳號。
+- 不使用 `admin123` / `survey123` 等預設密碼。
+- 問卷資料寫入後端資料庫。
+- 第一個 `super_admin` 需用 `BOOTSTRAP_ADMIN_EMAIL` 與 `BOOTSTRAP_ADMIN_PASSWORD` 建立。
 
-- 「議題庫」：新增、編輯、停用 E/S/G 議題，欄位包含議題代碼、中文名稱、英文名稱、類別、說明、GRI 對應、SDGs 對應、責任單位、管理方針、KPI、排序與啟用狀態。
-- 「問卷活動」：建立年度問卷活動、設定起訖時間、重大性門檻、狀態與是否開放填答。
-- 「邀請碼管理」：依問卷活動與利害關係人類別批次產生匿名一次性邀請碼。
+## 帳號權限
 
-後端管理 API：
+管理者角色：
 
-- `GET /api/admin/topics`
-- `POST /api/admin/topics`
-- `PATCH /api/admin/topics/{topic_id}`
-- `GET /api/admin/campaigns`
-- `POST /api/admin/campaigns`
-- `PATCH /api/admin/campaigns/{campaign_id}`
-- `GET /api/admin/campaigns/{campaign_id}/invitations`
-- `POST /api/admin/campaigns/{campaign_id}/invitations`
+- `super_admin`: 可建立、停用、重設管理者帳號，可查看 `audit_logs`，可管理全部問卷活動。
+- `admin`: 可建立問卷活動、管理議題庫、產生專家邀請碼、查看結果與匯出報告。
+- `reviewer`: 只能查看儀表板與下載報告，不可修改資料，不可產生邀請碼。
 
-## 第四階段：正式 Word 報告與矩陣圖片
+填答者不需要正式帳號。
 
-- Word 報告改為正式 `.docx`，內含封面、2.3 利害關係人溝通、2.4 重大主題鑑別流程、2.5 雙重重大性評估結果、2.6 重大主題管理方針、GRI 3-1 / 3-2 / 3-3 與附錄。
-- 報告會內嵌重大性矩陣 PNG；Dashboard 下載 Word 時會把目前畫面上的矩陣圖一併送至後端。
-- 後端提供 fallback 矩陣 PNG 產生器，不需額外圖表套件。
-- 新增獨立矩陣圖片 API：`GET /api/exports/materiality-matrix.png`
-- Word 報告支援：
-  - `GET /api/reports/materiality.docx?campaign_id={id}`
-  - `POST /api/reports/materiality.docx`，可傳入 `campaign_id` 與 `matrix_png_base64`
+## 兩階段問卷
 
-## 第五階段：AI 分析與 GRI 章節草稿
+Concern Survey:
 
-- AI 分析輸出分為：中文摘要、英文摘要、重大主題排序說明、利害關係人差異分析、管理建議、報告書可直接使用段落、GRI 3-1 / 3-2 / 3-3 草稿。
-- OpenAI 僅接收彙整後數據與去識別化開放題，後端會移除 email、電話與疑似 ID。
-- 每次產生 AI 分析都會儲存為版本，管理者可重新產生並覆蓋目前 active 版本。
-- Word 報告會引用目前 active AI 分析版本；若尚未產生版本，使用 deterministic fallback 草稿。
-- 後端管理 API：
-  - `GET /api/admin/ai-analyses?campaign_id={id}`
-  - `GET /api/admin/ai-analyses/latest?campaign_id={id}`
-  - `POST /api/admin/ai-analyses/generate`
+- 路徑：`/survey/concern`
+- 不需登入、不需邀請碼。
+- 填答者自行選擇利害關係人類別。
+- 對各永續議題評估關注程度 1-5 分。
 
-## 環境變數
+Expert Materiality Assessment:
 
-根目錄可由 `.env.example` 複製為 `.env`。
+- 路徑：`/survey/expert`
+- 必須使用邀請碼。
+- 邀請碼只能由 `admin` / `super_admin` 產生。
+- 一組邀請碼預設只能填答一次。
+- 支援「不清楚」，後端以 `null` 保存。
 
-```env
-DATABASE_URL=postgresql+psycopg://materiality:materiality@db:5432/materiality
-SECRET_KEY=replace-with-a-long-random-secret
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4.1-mini
-FRONTEND_ORIGIN=https://your-org.github.io
-EXTRA_CORS_ORIGINS=
-SEED_DEMO_ACCOUNTS=false
-BOOTSTRAP_ADMIN_EMAIL=admin@example.edu
-BOOTSTRAP_ADMIN_PASSWORD=replace-with-temporary-password
+## 新增或修改資料表
 
-NEXT_PUBLIC_DEMO_MODE=false
-NEXT_PUBLIC_API_URL=https://your-api.example.com/api
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-```
+- `users.role`: 支援 `super_admin`、`admin`、`reviewer`、`respondent`。
+- `invitation_codes.survey_type`: 預設 `expert`。
+- `concern_survey_responses`
+- `concern_survey_scores`
+- `expert_assessment_responses`
+- `expert_assessment_scores`
+- `audit_logs`: 由 `super_admin` 查詢。
 
-正式版請保持 `SEED_DEMO_ACCOUNTS=false`，並用 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 建立初始管理者。密碼會以 PBKDF2 hash 保存。
+完整 PostgreSQL schema 見 `backend/schema.sql`。
 
-## 資料庫 Schema
+## 新增或修改 API
 
-正式 schema 位於 `backend/schema.sql`，主要資料表：
+系統與公開問卷：
 
-- `stakeholder_groups`: 利害關係人類別、權重、啟用狀態。
-- `users`: 管理者與登入填答者。
-- `topics`: E/S/G 議題庫與 GRI、SDGs、責任單位、KPI 等欄位。
-- `survey_campaigns`: 年度問卷活動、起訖、門檻。
-- `invitation_codes`: 匿名一次性邀請碼。
-- `survey_drafts`: 問卷暫存。
-- `survey_responses`: 正式送出紀錄。
-- `topic_scores`: 雙重重大性詳細評分與自動計算分數。
-- `audit_logs`: 登入、送出、匯出等稽核紀錄。
+- `GET /api/system/mode`
+- `GET /api/public/survey-config`
+- `POST /api/surveys/concern`
+- `POST /api/surveys/expert`
+
+管理者帳號與稽核：
+
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/{user_id}`
+- `POST /api/admin/users/{user_id}/reset-password`
+- `GET /api/admin/audit-logs`
+
+權限調整：
+
+- `GET /api/analytics`
+- `GET /api/reports/materiality.docx`
+- `POST /api/reports/materiality.docx`
+- `GET /api/exports/materiality-matrix.png`
+
+以上報表/儀表板端點允許 `super_admin`、`admin`、`reviewer`。
 
 ## 本機測試
 
@@ -103,67 +92,45 @@ Backend:
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements-dev.txt
-cd ..
-$env:TMP="$PWD\.tmp"; $env:TEMP="$PWD\.tmp"
-.\backend\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Frontend:
 
 ```powershell
 cd frontend
-npm install
+npm run lint
 npm run typecheck
-npm test
 npm run build
 ```
 
-## 本機啟動
-
-Backend:
-
-```powershell
-cd backend
-.\.venv\Scripts\uvicorn app.main:app --reload
-```
-
-Frontend:
+GitHub Pages demo build:
 
 ```powershell
 cd frontend
-npm run dev
+$env:NEXT_PUBLIC_DEMO_MODE="true"
+$env:PAGES_BASE_PATH="/university-materiality-platform"
+npm run build
 ```
 
-## GitHub Pages + 正式後端部署
+## GitHub Pages 部署注意事項
 
-1. 部署 PostgreSQL 或 Supabase PostgreSQL，設定 `DATABASE_URL`。
-2. 部署 FastAPI 後端到 Render、Railway、Fly.io、Azure App Service 或自管主機。
-3. 後端設定：
-   - `FRONTEND_ORIGIN=https://<org>.github.io`
-   - `SECRET_KEY` 使用長隨機值
-   - `SEED_DEMO_ACCOUNTS=false`
-   - 首次部署才設定 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
-4. GitHub Pages frontend 設定：
-   - demo showcase: `NEXT_PUBLIC_DEMO_MODE=true`
-   - formal frontend: `NEXT_PUBLIC_DEMO_MODE=false`
-   - `NEXT_PUBLIC_API_URL=https://<backend-domain>/api`
-5. GitHub Actions 會執行 `npm install`、build、type check、test，再部署 Pages。
+- GitHub Pages 只能部署靜態前端。
+- Demo showcase 使用 `NEXT_PUBLIC_DEMO_MODE=true`。
+- 正式前端使用 `NEXT_PUBLIC_DEMO_MODE=false` 並設定：
+  - `NEXT_PUBLIC_API_URL=https://<backend-domain>/api`
+- `/survey/concern` 與 `/survey/expert` 是公開前端路徑，正式資料仍需寫入後端 API。
 
-## Demo Mode 與 Production Mode
+## 後端正式部署建議
 
-Demo mode:
-
-- 使用前端內建示範資料。
-- 可用示範帳號快速體驗。
-- 問卷不永久保存。
-- 匯出僅產生示範文字檔提示。
-
-Production mode:
-
-- 所有問卷送出寫入 PostgreSQL。
-- 同一帳號或同一邀請碼只能送出一次。
-- 管理者可匯出正式 `.xlsx`、去識別化 `.csv` 與 `.docx`。
-- 不顯示預設帳密。
-- CORS 依 `FRONTEND_ORIGIN` 限制正式前端網域。
+- 使用 PostgreSQL 或 Supabase PostgreSQL。
+- 設定：
+  - `APP_MODE=production`
+  - `SEED_DEMO_ACCOUNTS=false`
+  - `SECRET_KEY=<long-random-secret>`
+  - `DATABASE_URL=<postgres-url>`
+  - `FRONTEND_ORIGIN=https://<github-pages-domain>`
+  - `BOOTSTRAP_ADMIN_EMAIL=<first-super-admin-email>`
+  - `BOOTSTRAP_ADMIN_PASSWORD=<temporary-strong-password>`
+- 建立第一位 `super_admin` 後，請立即登入並重設正式密碼。
+- Production Mode 不會建立 demo 帳號。

@@ -37,13 +37,45 @@ class StakeholderGroupUpdate(BaseModel):
     is_active: bool | None = None
 
 
+AdminRole = Literal["super_admin", "admin", "reviewer"]
+
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr
     name: str
-    role: Literal["admin", "respondent"]
+    role: Literal["super_admin", "admin", "reviewer", "respondent"]
     stakeholder_group: StakeholderGroupOut
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserAdminOut(BaseModel):
+    id: int
+    email: EmailStr
+    name: str
+    role: Literal["super_admin", "admin", "reviewer", "respondent"]
+    stakeholder_group_id: int
+    is_active: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=12, max_length=128)
+    role: AdminRole
+    stakeholder_group_id: int
+
+
+class AdminUserUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    role: AdminRole | None = None
+    stakeholder_group_id: int | None = None
+    is_active: bool | None = None
+
+
+class AdminPasswordReset(BaseModel):
+    password: str = Field(min_length=12, max_length=128)
 
 
 class LoginRequest(BaseModel):
@@ -160,6 +192,7 @@ class InvitationCodeOut(BaseModel):
     stakeholder_group_id: int
     stakeholder_group_name: str
     label: str | None = None
+    survey_type: str = "expert"
     is_active: bool
     used_at: datetime | None = None
     created_at: datetime
@@ -221,6 +254,62 @@ class SurveyStatusOut(BaseModel):
     campaign_id: int
     submitted: bool
     submitted_at: datetime | None = None
+
+
+class PublicSurveyConfig(BaseModel):
+    app_mode: str
+    campaign: CampaignOut
+    topics: list[TopicOut]
+    stakeholder_groups: list[StakeholderGroupOut]
+
+
+class ConcernScoreInput(BaseModel):
+    topic_id: int
+    concern_score: int = Field(ge=1, le=5)
+
+
+class ConcernSurveySubmit(BaseModel):
+    campaign_id: int
+    stakeholder_group_id: int
+    scores: list[ConcernScoreInput] = Field(min_length=1)
+    open_answer: str | None = Field(default=None, max_length=2000)
+
+
+class ExpertScoreInput(BaseModel):
+    topic_id: int
+    impact_likelihood_score: int | None = Field(default=None, ge=1, le=5)
+    positive_impact_score: int | None = Field(default=None, ge=1, le=5)
+    negative_impact_score: int | None = Field(default=None, ge=1, le=5)
+    admissions_revenue_score: int | None = Field(default=None, ge=1, le=5)
+    reputation_score: int | None = Field(default=None, ge=1, le=5)
+    operating_cost_score: int | None = Field(default=None, ge=1, le=5)
+    funding_score: int | None = Field(default=None, ge=1, le=5)
+    legal_liability_score: int | None = Field(default=None, ge=1, le=5)
+    financial_likelihood_score: int | None = Field(default=None, ge=1, le=5)
+
+
+class ExpertSurveySubmit(BaseModel):
+    campaign_id: int
+    invitation_code: str
+    scores: list[ExpertScoreInput] = Field(min_length=1)
+    open_answer: str | None = Field(default=None, max_length=2000)
+
+
+class PublicSurveySubmitOut(BaseModel):
+    campaign_id: int
+    submitted: bool
+    submitted_at: datetime
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    actor_user_id: int | None
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    detail: str | None = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TopicMetric(BaseModel):
