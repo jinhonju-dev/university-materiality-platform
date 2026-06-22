@@ -130,3 +130,8 @@ create index if not exists ix_topics_code on topics(code);
 create index if not exists ix_topics_category on topics(category);
 create index if not exists ix_invitation_codes_code on invitation_codes(code);
 create index if not exists ix_audit_logs_action on audit_logs(action);
+
+-- Third-stage management APIs use the existing tables above:
+-- topics: create/edit/disable issue library items.
+-- survey_campaigns: create/edit/open/close annual questionnaire campaigns.
+-- invitation_codes: generate single-use anonymous invitation codes by stakeholder group.

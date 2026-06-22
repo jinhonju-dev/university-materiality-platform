@@ -1,6 +1,6 @@
 # University Materiality Platform
 
-大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。
+大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。
 
 ## 架構
 
@@ -19,6 +19,25 @@
   - `GET /api/admin/stakeholder-groups`
   - `POST /api/admin/stakeholder-groups`
   - `PATCH /api/admin/stakeholder-groups/{group_id}`
+
+## 第三階段：議題庫與問卷活動管理
+
+管理者前端已新增：
+
+- 「議題庫」：新增、編輯、停用 E/S/G 議題，欄位包含議題代碼、中文名稱、英文名稱、類別、說明、GRI 對應、SDGs 對應、責任單位、管理方針、KPI、排序與啟用狀態。
+- 「問卷活動」：建立年度問卷活動、設定起訖時間、重大性門檻、狀態與是否開放填答。
+- 「邀請碼管理」：依問卷活動與利害關係人類別批次產生匿名一次性邀請碼。
+
+後端管理 API：
+
+- `GET /api/admin/topics`
+- `POST /api/admin/topics`
+- `PATCH /api/admin/topics/{topic_id}`
+- `GET /api/admin/campaigns`
+- `POST /api/admin/campaigns`
+- `PATCH /api/admin/campaigns/{campaign_id}`
+- `GET /api/admin/campaigns/{campaign_id}/invitations`
+- `POST /api/admin/campaigns/{campaign_id}/invitations`
 
 ## 環境變數
 

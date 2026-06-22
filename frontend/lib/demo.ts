@@ -1,4 +1,4 @@
-import type { Analytics, Campaign, StakeholderGroupAdmin, Topic, User } from "./types";
+import type { Analytics, Campaign, CampaignAdmin, InvitationCode, StakeholderGroupAdmin, Topic, TopicAdmin, User } from "./types";
 
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -20,6 +20,16 @@ export const demoTopics: Topic[] = [
   { id: 5, code: "S02", category: "S", name_zh: "人才培育與發展", name_en: "Talent Development", description: "教學品質、學生能力培育與員工發展。", sort_order: 5 },
   { id: 6, code: "G01", category: "G", name_zh: "資訊安全與隱私", name_en: "Information Security and Privacy", description: "個資保護、資安治理與事件應變。", sort_order: 6 },
 ];
+
+export const demoTopicAdmins: TopicAdmin[] = demoTopics.map((topic) => ({
+  ...topic,
+  gri_mapping: topic.code.startsWith("E") ? "GRI 302 / 305" : topic.code.startsWith("S") ? "GRI 401 / 403" : "GRI 2 / 3",
+  sdgs_mapping: topic.code.startsWith("E") ? "SDG 7, 13" : topic.code.startsWith("S") ? "SDG 4, 8" : "SDG 16",
+  responsible_unit: "永續辦公室",
+  management_approach: "年度檢討重大主題、設定改善計畫並追蹤 KPI。",
+  kpi: "年度改善完成率",
+  is_active: true,
+}));
 
 const demoScores = [
   [4.45, 4.72, 4.51],
@@ -96,6 +106,31 @@ export const demoStakeholderGroups: StakeholderGroupAdmin[] = [
   { id: 7, name: "廠商", scope: "external", description: "供應商與承攬商", weight: 0.9, is_active: true, response_count: 27 },
   { id: 8, name: "社區居民", scope: "external", description: "鄰近社區", weight: 1.0, is_active: true, response_count: 58 },
   { id: 9, name: "NGO", scope: "external", description: "非營利組織", weight: 1.1, is_active: true, response_count: 15 },
+];
+
+export const demoCampaigns: CampaignAdmin[] = [
+  {
+    ...demoCampaign,
+    starts_at: "2026-08-01T00:00:00+08:00",
+    ends_at: "2026-09-30T23:59:59+08:00",
+    response_count: 1250,
+    invitation_count: 1800,
+    used_invitation_count: 840,
+  },
+];
+
+export const demoInvitations: InvitationCode[] = [
+  {
+    id: 1,
+    campaign_id: 1,
+    code: "DEMO-STUDENT",
+    stakeholder_group_id: 1,
+    stakeholder_group_name: "學生",
+    label: "Demo student invitation",
+    is_active: true,
+    used_at: null,
+    created_at: "2026-08-01T00:00:00+08:00",
+  },
 ];
 
 export function demoLogin(email: string, password: string): { access_token: string; user: User } | null {

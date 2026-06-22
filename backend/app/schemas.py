@@ -78,6 +78,40 @@ class TopicOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TopicAdminOut(TopicOut):
+    is_active: bool = True
+
+
+class TopicCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    category: Literal["E", "S", "G"]
+    name_zh: str = Field(min_length=1, max_length=100)
+    name_en: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    gri_mapping: str | None = Field(default=None, max_length=255)
+    sdgs_mapping: str | None = Field(default=None, max_length=255)
+    responsible_unit: str | None = Field(default=None, max_length=120)
+    management_approach: str | None = None
+    kpi: str | None = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class TopicUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=20)
+    category: Literal["E", "S", "G"] | None = None
+    name_zh: str | None = Field(default=None, min_length=1, max_length=100)
+    name_en: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    gri_mapping: str | None = Field(default=None, max_length=255)
+    sdgs_mapping: str | None = Field(default=None, max_length=255)
+    responsible_unit: str | None = Field(default=None, max_length=120)
+    management_approach: str | None = None
+    kpi: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+
+
 class CampaignOut(BaseModel):
     id: int
     title: str
@@ -87,6 +121,54 @@ class CampaignOut(BaseModel):
     impact_threshold: float
     financial_threshold: float
     model_config = ConfigDict(from_attributes=True)
+
+
+class CampaignAdminOut(CampaignOut):
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    response_count: int = 0
+    invitation_count: int = 0
+    used_invitation_count: int = 0
+
+
+class CampaignCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    year: int = Field(ge=2000, le=2100)
+    status: Literal["draft", "active", "closed"] = "draft"
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    is_open: bool = False
+    impact_threshold: float = Field(default=3.5, ge=1, le=5)
+    financial_threshold: float = Field(default=3.5, ge=1, le=5)
+
+
+class CampaignUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    year: int | None = Field(default=None, ge=2000, le=2100)
+    status: Literal["draft", "active", "closed"] | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    is_open: bool | None = None
+    impact_threshold: float | None = Field(default=None, ge=1, le=5)
+    financial_threshold: float | None = Field(default=None, ge=1, le=5)
+
+
+class InvitationCodeOut(BaseModel):
+    id: int
+    campaign_id: int
+    code: str
+    stakeholder_group_id: int
+    stakeholder_group_name: str
+    label: str | None = None
+    is_active: bool
+    used_at: datetime | None = None
+    created_at: datetime
+
+
+class InvitationGenerateRequest(BaseModel):
+    stakeholder_group_id: int
+    count: int = Field(default=1, ge=1, le=500)
+    label_prefix: str | None = Field(default=None, max_length=80)
 
 
 class ScoreInput(BaseModel):

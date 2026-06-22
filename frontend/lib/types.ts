@@ -32,6 +32,11 @@ export type Topic = {
   management_approach?: string | null;
   kpi?: string | null;
   sort_order: number;
+  is_active?: boolean;
+};
+
+export type TopicAdmin = Topic & {
+  is_active: boolean;
 };
 
 export type Campaign = {
@@ -42,6 +47,26 @@ export type Campaign = {
   is_open: boolean;
   impact_threshold: number;
   financial_threshold: number;
+};
+
+export type CampaignAdmin = Campaign & {
+  starts_at?: string | null;
+  ends_at?: string | null;
+  response_count: number;
+  invitation_count: number;
+  used_invitation_count: number;
+};
+
+export type InvitationCode = {
+  id: number;
+  campaign_id: number;
+  code: string;
+  stakeholder_group_id: number;
+  stakeholder_group_name: string;
+  label: string | null;
+  is_active: boolean;
+  used_at: string | null;
+  created_at: string;
 };
 
 export type TopicMetric = {

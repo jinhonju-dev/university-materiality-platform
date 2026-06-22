@@ -1,4 +1,4 @@
-import { DEMO_MODE, demoAnalytics, demoCampaign, demoLogin, demoStakeholderGroups, demoTopics } from "./demo";
+import { DEMO_MODE, demoAnalytics, demoCampaign, demoCampaigns, demoInvitations, demoLogin, demoStakeholderGroups, demoTopicAdmins, demoTopics } from "./demo";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -24,7 +24,42 @@ export async function api<T>(
       return result as T;
     }
     if (path === "/topics") return demoTopics as T;
+    if (path === "/admin/topics" && options.method === "POST") {
+      const body = JSON.parse(String(options.body || "{}"));
+      return { ...body, id: Date.now(), is_active: true } as T;
+    }
+    if (path === "/admin/topics") return demoTopicAdmins as T;
+    if (path.startsWith("/admin/topics/")) {
+      const id = Number(path.split("/").pop());
+      const current = demoTopicAdmins.find((topic) => topic.id === id) || demoTopicAdmins[0];
+      const updates = options.body ? JSON.parse(String(options.body)) : {};
+      return { ...current, ...updates } as T;
+    }
     if (path === "/campaigns/active") return demoCampaign as T;
+    if (path === "/admin/campaigns" && options.method === "POST") {
+      const body = JSON.parse(String(options.body || "{}"));
+      return { ...demoCampaigns[0], ...body, id: Date.now(), response_count: 0, invitation_count: 0, used_invitation_count: 0 } as T;
+    }
+    if (path === "/admin/campaigns") return demoCampaigns as T;
+    if (path.startsWith("/admin/campaigns/") && path.endsWith("/invitations") && options.method !== "POST") {
+      return demoInvitations as T;
+    }
+    if (path.startsWith("/admin/campaigns/") && path.endsWith("/invitations") && options.method === "POST") {
+      const body = JSON.parse(String(options.body || "{}"));
+      return Array.from({ length: body.count || 1 }, (_, index) => ({
+        ...demoInvitations[0],
+        id: Date.now() + index,
+        code: `DEMO-${index + 1}`.padEnd(10, "X"),
+        stakeholder_group_id: body.stakeholder_group_id,
+        label: `${body.label_prefix || "DEMO"}-${index + 1}`,
+      })) as T;
+    }
+    if (path.startsWith("/admin/campaigns/")) {
+      const id = Number(path.split("/")[3]);
+      const current = demoCampaigns.find((campaign) => campaign.id === id) || demoCampaigns[0];
+      const updates = options.body ? JSON.parse(String(options.body)) : {};
+      return { ...current, ...updates } as T;
+    }
     if (path === "/analytics") return demoAnalytics as T;
     if (path === "/admin/stakeholder-groups") return demoStakeholderGroups as T;
     if (path.startsWith("/admin/stakeholder-groups/")) {

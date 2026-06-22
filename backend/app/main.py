@@ -1,4 +1,6 @@
 import json
+import secrets
+import string
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -18,7 +20,12 @@ from .schemas import (
     AnalyticsOut,
     AnonymousSurveyDraftIn,
     AnonymousSurveySubmit,
+    CampaignAdminOut,
+    CampaignCreate,
     CampaignOut,
+    CampaignUpdate,
+    InvitationCodeOut,
+    InvitationGenerateRequest,
     InviteLoginRequest,
     LoginRequest,
     StakeholderGroupAdminOut,
@@ -28,7 +35,10 @@ from .schemas import (
     SurveyStatusOut,
     SurveySubmit,
     TokenOut,
+    TopicAdminOut,
+    TopicCreate,
     TopicOut,
+    TopicUpdate,
     UserOut,
 )
 from .security import create_access_token, get_current_principal, get_current_user, require_admin, verify_password
@@ -100,6 +110,46 @@ def validate_topic_coverage(db: Session, scores) -> None:
     submitted_ids = {score.topic_id for score in scores}
     if submitted_ids != topic_ids:
         raise HTTPException(status_code=422, detail="Please score every active topic before submitting.")
+
+
+def invitation_code_value(length: int = 10) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return "-".join(
+        "".join(secrets.choice(alphabet) for _ in range(5))
+        for _ in range(max(1, length // 5))
+    )
+
+
+def campaign_admin_out(db: Session, campaign: SurveyCampaign) -> CampaignAdminOut:
+    response_count = db.scalar(select(func.count(SurveyResponse.id)).where(SurveyResponse.campaign_id == campaign.id)) or 0
+    invitation_count = db.scalar(select(func.count(InvitationCode.id)).where(InvitationCode.campaign_id == campaign.id)) or 0
+    used_count = db.scalar(
+        select(func.count(InvitationCode.id)).where(
+            InvitationCode.campaign_id == campaign.id,
+            InvitationCode.used_at.is_not(None),
+        )
+    ) or 0
+    return CampaignAdminOut.model_validate(campaign).model_copy(
+        update={
+            "response_count": response_count,
+            "invitation_count": invitation_count,
+            "used_invitation_count": used_count,
+        }
+    )
+
+
+def invitation_out(invitation: InvitationCode) -> InvitationCodeOut:
+    return InvitationCodeOut(
+        id=invitation.id,
+        campaign_id=invitation.campaign_id,
+        code=invitation.code,
+        stakeholder_group_id=invitation.stakeholder_group_id,
+        stakeholder_group_name=invitation.stakeholder_group.name,
+        label=invitation.label,
+        is_active=invitation.is_active,
+        used_at=invitation.used_at,
+        created_at=invitation.created_at,
+    )
 
 
 def score_models(response_id: int, scores) -> list[TopicScore]:
@@ -192,6 +242,55 @@ def list_topics(
     return db.scalars(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.sort_order)).all()
 
 
+@app.get("/api/admin/topics", response_model=list[TopicAdminOut])
+def list_admin_topics(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(select(Topic).order_by(Topic.sort_order, Topic.code)).all()
+
+
+@app.post("/api/admin/topics", response_model=TopicAdminOut)
+def create_topic(
+    payload: TopicCreate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    exists = db.scalar(select(Topic).where(Topic.code == payload.code))
+    if exists:
+        raise HTTPException(status_code=409, detail="Topic code already exists.")
+    topic = Topic(**payload.model_dump())
+    db.add(topic)
+    db.flush()
+    log_event(db, "create_topic", "topic", str(topic.id), user=user, detail=topic.code)
+    db.commit()
+    db.refresh(topic)
+    return topic
+
+
+@app.patch("/api/admin/topics/{topic_id}", response_model=TopicAdminOut)
+def update_topic(
+    topic_id: int,
+    payload: TopicUpdate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    topic = db.get(Topic, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found.")
+    updates = payload.model_dump(exclude_unset=True)
+    if "code" in updates:
+        duplicate = db.scalar(select(Topic).where(Topic.code == updates["code"], Topic.id != topic_id))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Topic code already exists.")
+    for key, value in updates.items():
+        setattr(topic, key, value)
+    log_event(db, "update_topic", "topic", str(topic.id), user=user, detail=json.dumps(updates, ensure_ascii=False))
+    db.commit()
+    db.refresh(topic)
+    return topic
+
+
 @app.get("/api/campaigns/active", response_model=CampaignOut)
 def active_campaign(
     _: User | InvitationCode = Depends(get_current_principal),
@@ -203,6 +302,111 @@ def active_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="No active survey campaign.")
     return campaign
+
+
+@app.get("/api/admin/campaigns", response_model=list[CampaignAdminOut])
+def list_campaigns(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaigns = db.scalars(select(SurveyCampaign).order_by(SurveyCampaign.year.desc(), SurveyCampaign.id.desc())).all()
+    return [campaign_admin_out(db, campaign) for campaign in campaigns]
+
+
+@app.post("/api/admin/campaigns", response_model=CampaignAdminOut)
+def create_campaign(
+    payload: CampaignCreate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = SurveyCampaign(**payload.model_dump())
+    db.add(campaign)
+    db.flush()
+    log_event(db, "create_campaign", "survey_campaign", str(campaign.id), user=user)
+    db.commit()
+    db.refresh(campaign)
+    return campaign_admin_out(db, campaign)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}", response_model=CampaignAdminOut)
+def update_campaign(
+    campaign_id: int,
+    payload: CampaignUpdate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = db.get(SurveyCampaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Survey campaign not found.")
+    updates = payload.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        setattr(campaign, key, value)
+    log_event(db, "update_campaign", "survey_campaign", str(campaign.id), user=user, detail=json.dumps(updates, default=str, ensure_ascii=False))
+    db.commit()
+    db.refresh(campaign)
+    return campaign_admin_out(db, campaign)
+
+
+@app.get("/api/admin/campaigns/{campaign_id}/invitations", response_model=list[InvitationCodeOut])
+def list_invitations(
+    campaign_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = db.get(SurveyCampaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Survey campaign not found.")
+    invitations = db.scalars(
+        select(InvitationCode)
+        .where(InvitationCode.campaign_id == campaign_id)
+        .order_by(InvitationCode.created_at.desc(), InvitationCode.id.desc())
+    ).all()
+    return [invitation_out(invitation) for invitation in invitations]
+
+
+@app.post("/api/admin/campaigns/{campaign_id}/invitations", response_model=list[InvitationCodeOut])
+def generate_invitations(
+    campaign_id: int,
+    payload: InvitationGenerateRequest,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = db.get(SurveyCampaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Survey campaign not found.")
+    group = db.get(StakeholderGroup, payload.stakeholder_group_id)
+    if not group or not group.is_active:
+        raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
+    created: list[InvitationCode] = []
+    existing_codes = set(
+        db.scalars(select(InvitationCode.code).where(InvitationCode.campaign_id == campaign_id)).all()
+    )
+    for index in range(payload.count):
+        code = invitation_code_value()
+        while code in existing_codes:
+            code = invitation_code_value()
+        existing_codes.add(code)
+        invitation = InvitationCode(
+            campaign_id=campaign_id,
+            code=code,
+            stakeholder_group_id=group.id,
+            label=f"{payload.label_prefix or group.name}-{index + 1}",
+        )
+        db.add(invitation)
+        created.append(invitation)
+    db.flush()
+    log_event(
+        db,
+        "generate_invitations",
+        "survey_campaign",
+        str(campaign_id),
+        user=user,
+        detail=f"group={group.name}; count={payload.count}",
+    )
+    db.commit()
+    for invitation in created:
+        db.refresh(invitation)
+    return [invitation_out(invitation) for invitation in created]
 
 
 @app.get("/api/admin/stakeholder-groups", response_model=list[StakeholderGroupAdminOut])

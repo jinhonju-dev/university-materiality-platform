@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  CalendarDays,
   ClipboardList,
   Database,
   FileOutput,
@@ -17,8 +18,17 @@ import {
 import { DEMO_MODE } from "@/lib/demo";
 import type { User } from "@/lib/types";
 import { Dashboard } from "./Dashboard";
+import { CampaignAdmin } from "./CampaignAdmin";
 import { StakeholderAdmin } from "./StakeholderAdmin";
 import { Survey } from "./Survey";
+import { TopicAdmin } from "./TopicAdmin";
+
+type NavItem = {
+  id: string;
+  label: string;
+  icon: typeof BarChart3;
+  disabled?: boolean;
+};
 
 export function AppShell({
   token,
@@ -36,11 +46,12 @@ export function AppShell({
     setView(user.role === "admin" ? "dashboard" : "survey");
   }, [user]);
 
-  const nav = user.role === "admin" ? [
+  const nav: NavItem[] = user.role === "admin" ? [
     { id: "dashboard", label: "分析儀表板", icon: BarChart3 },
     { id: "survey", label: "問卷預覽", icon: ClipboardList },
     { id: "stakeholders", label: "利害關係人", icon: Users },
-    { id: "topics", label: "議題庫", icon: Database, disabled: true },
+    { id: "topics", label: "議題庫", icon: Database },
+    { id: "campaigns", label: "問卷活動", icon: CalendarDays },
     { id: "reports", label: "報告管理", icon: FileOutput },
   ] : [
     { id: "survey", label: "重大性問卷", icon: ClipboardList },
@@ -63,7 +74,7 @@ export function AppShell({
               key={item.id}
               className={view === item.id ? "active" : ""}
               disabled={item.disabled}
-              title={item.disabled ? "第二階段補齊管理 CRUD" : undefined}
+              title={item.disabled ? "尚未開放" : undefined}
               onClick={() => {
                 setView(item.id);
                 setMobileOpen(false);
@@ -88,7 +99,9 @@ export function AppShell({
         {view === "survey" && <Survey token={token} />}
         {view === "dashboard" && <Dashboard token={token} />}
         {view === "stakeholders" && <StakeholderAdmin token={token} />}
-        {view !== "survey" && view !== "dashboard" && view !== "stakeholders" && <Dashboard token={token} />}
+        {view === "topics" && <TopicAdmin token={token} />}
+        {view === "campaigns" && <CampaignAdmin token={token} />}
+        {view !== "survey" && view !== "dashboard" && view !== "stakeholders" && view !== "topics" && view !== "campaigns" && <Dashboard token={token} />}
       </section>
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
     </main>
