@@ -100,8 +100,35 @@ export type Analytics = {
     response_count: number;
   }[];
   keywords: { keyword: string; count: number }[];
+  ai_analysis: AIAnalysisContent;
   analysis_zh: string;
   analysis_en: string;
+};
+
+export type AIAnalysisContent = {
+  zh_summary: string;
+  en_summary: string;
+  material_topic_ranking: string;
+  stakeholder_difference_analysis: string;
+  management_recommendations: string;
+  report_paragraph_zh: string;
+  report_paragraph_en: string;
+  gri_3_1: string;
+  gri_3_2: string;
+  gri_3_3: string;
+  disclaimer: string;
+};
+
+export type AIAnalysisVersion = {
+  id: number;
+  campaign_id: number;
+  version: number;
+  model: string;
+  prompt_version: string;
+  input_hash: string;
+  content: AIAnalysisContent;
+  is_active: boolean;
+  created_at: string;
 };
 
 export type SurveyScore = {

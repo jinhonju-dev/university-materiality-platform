@@ -100,7 +100,6 @@ def configure_document(document: Document) -> None:
     section.bottom_margin = Inches(0.72)
     section.left_margin = Inches(0.78)
     section.right_margin = Inches(0.78)
-
     styles = document.styles
     styles["Normal"].font.name = "Microsoft JhengHei"
     styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft JhengHei")
@@ -135,7 +134,7 @@ def add_cover(document: Document, data: dict) -> None:
             ["涵蓋利害關係人類別", f"{data['stakeholder_count']} 類"],
             ["衝擊重大性門檻", f"{data['campaign'].impact_threshold:.1f}"],
             ["財務重大性門檻", f"{data['campaign'].financial_threshold:.1f}"],
-            ["文件狀態", "AI 草稿，需人工審閱"],
+            ["文件狀態", data["ai_analysis"]["disclaimer"]],
         ],
         widths=[1.8, 4.8],
     )
@@ -152,24 +151,13 @@ def add_stakeholder_section(document: Document, data: dict) -> None:
             "利害關係人權重與分群統計，以支持永續報告書揭露與後續佐證。"
         ),
     )
-    rows = [
-        [item["name"], str(item["count"]), f"{item['weight']:.2f}"]
-        for item in data["stakeholders"]
-    ]
+    rows = [[item["name"], str(item["count"]), f"{item['weight']:.2f}"] for item in data["stakeholders"]]
     add_table(document, ["利害關係人類別", "回收數", "權重"], rows, widths=[3.0, 1.2, 1.2])
 
 
 def add_process_section(document: Document, data: dict) -> None:
     add_heading(document, "2.4 重大主題鑑別流程", 1)
-    add_paragraph(
-        document,
-        (
-            "本平台依 GRI 2021 與 ESRS 雙重重大性精神，將重大性評估拆分為議題庫建立、"
-            "利害關係人參與、衝擊重大性評分、財務重大性評分、加權分析、重大性矩陣判定與報告審閱。"
-            "衝擊重大性評估組織對環境與社會的實際或潛在影響；財務重大性評估永續議題對學校財務、"
-            "營運韌性與風險機會的影響。"
-        ),
-    )
+    add_paragraph(document, data["ai_analysis"]["gri_3_1"])
     add_table(
         document,
         ["步驟", "說明", "佐證資料"],
@@ -185,7 +173,7 @@ def add_process_section(document: Document, data: dict) -> None:
 
 def add_result_section(document: Document, data: dict, matrix_image: BytesIO) -> None:
     add_heading(document, "2.5 雙重重大性評估結果", 1)
-    add_paragraph(document, "以下矩陣以 X 軸呈現財務重大性、Y 軸呈現衝擊重大性，並依年度門檻劃分四象限。")
+    add_paragraph(document, data["ai_analysis"]["report_paragraph_zh"])
     document.add_picture(matrix_image, width=Inches(6.4))
     document.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
     caption = document.add_paragraph("圖 2.5-1 雙重重大性矩陣")
@@ -213,12 +201,13 @@ def add_result_section(document: Document, data: dict, matrix_image: BytesIO) ->
     )
 
     add_heading(document, "AI 分析摘要", 2)
-    add_paragraph(document, data["analysis_zh"])
-    add_paragraph(document, data["analysis_en"])
+    for field in ["zh_summary", "en_summary", "material_topic_ranking", "stakeholder_difference_analysis", "management_recommendations"]:
+        add_paragraph(document, data["ai_analysis"][field])
 
 
 def add_management_section(document: Document, data: dict) -> None:
     add_heading(document, "2.6 重大主題管理方針", 1)
+    add_paragraph(document, data["ai_analysis"]["management_recommendations"])
     selected = material_topics(data) or topic_rank(data)[:5]
     rows = [
         [
@@ -233,26 +222,11 @@ def add_management_section(document: Document, data: dict) -> None:
 
 def add_gri_sections(document: Document, data: dict) -> None:
     add_heading(document, "GRI 3-1 Process to determine material topics", 1)
-    add_paragraph(
-        document,
-        (
-            "The process combined stakeholder engagement, impact materiality scoring, financial materiality scoring, "
-            "stakeholder weighting and threshold-based matrix classification. The survey design, evidence records and "
-            "weighting assumptions should be retained for assurance and internal review."
-        ),
-    )
+    add_paragraph(document, data["ai_analysis"]["gri_3_1"])
     add_heading(document, "GRI 3-2 List of material topics", 1)
-    topics = material_topics(data)
-    add_paragraph(
-        document,
-        "Material topics identified in this assessment: "
-        + (", ".join(f"{topic['code']} {topic['name']}" for topic in topics) if topics else "No topic reached both thresholds yet."),
-    )
+    add_paragraph(document, data["ai_analysis"]["gri_3_2"])
     add_heading(document, "GRI 3-3 Management of material topics", 1)
-    add_paragraph(
-        document,
-        "Each responsible unit should review the management approach, policy commitments, action plans, metrics and targets before publication.",
-    )
+    add_paragraph(document, data["ai_analysis"]["gri_3_3"])
 
 
 def add_appendix(document: Document, data: dict) -> None:
@@ -267,7 +241,7 @@ def add_appendix(document: Document, data: dict) -> None:
             ["衝擊門檻", f"{data['campaign'].impact_threshold:.1f}"],
             ["財務門檻", f"{data['campaign'].financial_threshold:.1f}"],
             ["樣本數", f"{data['response_count']} 份有效問卷"],
-            ["AI 使用聲明", "AI 草稿，需人工審閱；不得直接作為最終揭露文字。"],
+            ["AI 使用聲明", data["ai_analysis"]["disclaimer"]],
         ],
         widths=[1.8, 4.8],
     )
@@ -281,7 +255,7 @@ def create_materiality_report(data: dict, matrix_image: bytes | None = None) -> 
     core.last_modified_by = "University Materiality Platform"
     core.title = "Double Materiality Assessment Report"
     core.subject = "Stakeholder engagement and material topics"
-    core.comments = "AI draft, human review required."
+    core.comments = data["ai_analysis"]["disclaimer"]
 
     matrix_stream = normalize_matrix_image(matrix_image, data)
     add_cover(document, data)
@@ -295,7 +269,7 @@ def create_materiality_report(data: dict, matrix_image: bytes | None = None) -> 
     for section in document.sections:
         footer = section.footer.paragraphs[0]
         footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = footer.add_run("AI 草稿，需人工審閱")
+        run = footer.add_run(data["ai_analysis"]["disclaimer"])
         set_east_asia_font(run)
         run.font.size = Pt(8)
         run.font.color.rgb = RGBColor(110, 120, 115)

@@ -3,6 +3,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from docx import Document
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -34,6 +35,7 @@ def reset_app_database(tmp_path: Path, name: str):
     settings.database_url = f"sqlite:///{tmp_path / name}"
     settings.seed_demo_accounts = True
     settings.secret_key = "test-secret"
+    settings.openai_api_key = None
 
     from app.database import Base, engine
     from app.main import app
@@ -51,28 +53,31 @@ def admin_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
 
 
+def submit_student_response(client: TestClient):
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "student@nuk.edu.tw", "password": "survey123"},
+    )
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    topics = client.get("/api/topics", headers=headers).json()
+    campaign = client.get("/api/campaigns/active", headers=headers).json()
+    payload = {
+        "campaign_id": campaign["id"],
+        "open_answer": "建議優先處理能源、資訊安全與人才培育。聯絡我 test@example.com 0912-345-678。",
+        "scores": detailed_scores(topics),
+    }
+    submit = client.post("/api/surveys/submit", json=payload, headers=headers)
+    assert submit.status_code == 200
+    return campaign, payload, headers
+
+
 def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
     app = reset_app_database(tmp_path, "test.db")
 
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200
-
-        login = client.post(
-            "/api/auth/login",
-            json={"email": "student@nuk.edu.tw", "password": "survey123"},
-        )
-        assert login.status_code == 200
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-        topics = client.get("/api/topics", headers=headers).json()
-        campaign = client.get("/api/campaigns/active", headers=headers).json()
-        payload = {
-            "campaign_id": campaign["id"],
-            "open_answer": "建議優先處理能源、資訊安全與人才培育。",
-            "scores": detailed_scores(topics),
-        }
-        submit = client.post("/api/surveys/submit", json=payload, headers=headers)
-        assert submit.status_code == 200
+        campaign, payload, headers = submit_student_response(client)
         duplicate = client.post("/api/surveys/submit", json=payload, headers=headers)
         assert duplicate.status_code == 409
 
@@ -83,6 +88,7 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
         assert body["response_count"] == 1
         assert body["topics"][0]["quadrant"] == "重大主題"
         assert body["topics"][0]["impact"] == 4.5
+        assert body["ai_analysis"]["disclaimer"] == "AI 草稿，需人工審閱。"
         assert any(group["name"] == "學生" and group["weight"] == 1.0 for group in body["stakeholders"])
 
         groups = client.get("/api/admin/stakeholder-groups", headers=admin)
@@ -108,11 +114,34 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
         assert matrix.status_code == 200
         assert matrix.content.startswith(b"\x89PNG\r\n\x1a\n")
 
+        generated = client.post(
+            "/api/admin/ai-analyses/generate",
+            headers=admin,
+            json={"campaign_id": campaign["id"], "overwrite_active": True},
+        )
+        assert generated.status_code == 200
+        generated_body = generated.json()
+        assert generated_body["version"] == 1
+        assert generated_body["model"] == "fallback"
+        assert "AI 草稿" in generated_body["content"]["disclaimer"]
+
+        latest = client.get(f"/api/admin/ai-analyses/latest?campaign_id={campaign['id']}", headers=admin)
+        assert latest.status_code == 200
+        assert latest.json()["version"] == 1
+
+        listed = client.get(f"/api/admin/ai-analyses?campaign_id={campaign['id']}", headers=admin)
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+
         report = client.get("/api/reports/materiality.docx", headers=admin)
         assert report.status_code == 200
         assert report.content.startswith(b"PK")
         with zipfile.ZipFile(BytesIO(report.content)) as archive:
             assert any(name.startswith("word/media/") and name.endswith(".png") for name in archive.namelist())
+        doc = Document(BytesIO(report.content))
+        report_text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
+        assert "GRI 3-1 Process to determine material topics" in report_text
+        assert "AI 草稿，需人工審閱" in report_text
 
         posted_report = client.post(
             "/api/reports/materiality.docx",

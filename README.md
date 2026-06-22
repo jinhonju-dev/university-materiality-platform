@@ -1,6 +1,6 @@
 # University Materiality Platform
 
-大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。第四階段已補上正式 Word 報告與重大性矩陣圖片輸出。
+大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。第四階段已補上正式 Word 報告與重大性矩陣圖片輸出。第五階段已補上 AI 分析版本管理與 GRI 章節草稿。
 
 ## 架構
 
@@ -48,6 +48,17 @@
 - Word 報告支援：
   - `GET /api/reports/materiality.docx?campaign_id={id}`
   - `POST /api/reports/materiality.docx`，可傳入 `campaign_id` 與 `matrix_png_base64`
+
+## 第五階段：AI 分析與 GRI 章節草稿
+
+- AI 分析輸出分為：中文摘要、英文摘要、重大主題排序說明、利害關係人差異分析、管理建議、報告書可直接使用段落、GRI 3-1 / 3-2 / 3-3 草稿。
+- OpenAI 僅接收彙整後數據與去識別化開放題，後端會移除 email、電話與疑似 ID。
+- 每次產生 AI 分析都會儲存為版本，管理者可重新產生並覆蓋目前 active 版本。
+- Word 報告會引用目前 active AI 分析版本；若尚未產生版本，使用 deterministic fallback 草稿。
+- 後端管理 API：
+  - `GET /api/admin/ai-analyses?campaign_id={id}`
+  - `GET /api/admin/ai-analyses/latest?campaign_id={id}`
+  - `POST /api/admin/ai-analyses/generate`
 
 ## 環境變數
 

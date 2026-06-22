@@ -125,13 +125,29 @@ create table if not exists audit_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists ai_analysis_versions (
+  id serial primary key,
+  campaign_id integer not null references survey_campaigns(id),
+  version integer not null,
+  model varchar(80) not null,
+  prompt_version varchar(40) not null default 'gri-v1',
+  input_hash varchar(64) not null,
+  content_json text not null,
+  is_active boolean not null default true,
+  created_by_user_id integer references users(id),
+  created_at timestamptz not null default now(),
+  constraint uq_ai_analysis_campaign_version unique (campaign_id, version)
+);
+
 create index if not exists ix_users_email on users(email);
 create index if not exists ix_topics_code on topics(code);
 create index if not exists ix_topics_category on topics(category);
 create index if not exists ix_invitation_codes_code on invitation_codes(code);
 create index if not exists ix_audit_logs_action on audit_logs(action);
+create index if not exists ix_ai_analysis_versions_campaign on ai_analysis_versions(campaign_id);
 
 -- Third-stage management APIs use the existing tables above:
 -- topics: create/edit/disable issue library items.
 -- survey_campaigns: create/edit/open/close annual questionnaire campaigns.
 -- invitation_codes: generate single-use anonymous invitation codes by stakeholder group.
+-- ai_analysis_versions: stores versioned AI drafts for summaries, stakeholder difference analysis, management recommendations and GRI 3-1/3-2/3-3 sections.

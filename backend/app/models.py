@@ -167,3 +167,22 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AIAnalysisVersion(Base):
+    __tablename__ = "ai_analysis_versions"
+    __table_args__ = (UniqueConstraint("campaign_id", "version", name="uq_ai_analysis_campaign_version"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(String(80))
+    prompt_version: Mapped[str] = mapped_column(String(40), default="gri-v1")
+    input_hash: Mapped[str] = mapped_column(String(64))
+    content_json: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    campaign: Mapped[SurveyCampaign] = relationship()
+    created_by: Mapped[User | None] = relationship()

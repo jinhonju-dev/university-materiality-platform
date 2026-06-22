@@ -177,7 +177,7 @@ export function Dashboard({ token }: { token: string }) {
 
         <article className="panel ai-panel">
           <div className="panel-heading">
-            <div className="ai-title"><span><BrainCircuit /></span><div><h2>AI 分析摘要</h2><p>僅使用彙整後資料與去識別化文字，內容需人工審閱。</p></div></div>
+            <div className="ai-title"><span><BrainCircuit /></span><div><h2>AI 分析摘要</h2><p>{data.ai_analysis.disclaimer}</p></div></div>
             <div className="language-switch">
               <button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中文</button>
               <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
@@ -185,7 +185,7 @@ export function Dashboard({ token }: { token: string }) {
           </div>
           <div className="ai-copy">
             <Sparkles size={17} />
-            <p>{language === "zh" ? data.analysis_zh : data.analysis_en}</p>
+            <p>{language === "zh" ? data.ai_analysis.zh_summary : data.ai_analysis.en_summary}</p>
           </div>
           <div className="keyword-section">
             <span>開放題關鍵字</span>

@@ -1,12 +1,9 @@
-import json
-import re
 from collections import Counter
 
-from openai import OpenAI
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .config import get_settings
+from .ai_analysis import analysis_content, fallback_ai_sections, latest_ai_analysis
 from .models import StakeholderGroup, SurveyCampaign, SurveyResponse, Topic, TopicScore, User
 
 
@@ -43,79 +40,8 @@ def extract_keywords(answers: list[str]) -> list[dict]:
     counts = Counter()
     text = "\n".join(answers)
     for label, aliases in KEYWORD_MAP.items():
-        counts[label] = sum(len(re.findall(re.escape(alias), text, re.I)) for alias in aliases)
+        counts[label] = sum(text.lower().count(alias.lower()) for alias in aliases)
     return [{"keyword": keyword, "count": count} for keyword, count in counts.most_common() if count > 0][:8]
-
-
-def fallback_analysis(response_count: int, stakeholder_count: int, topics: list[dict]) -> tuple[str, str]:
-    major = [f"{item['code']} {item['name']}" for item in topics if item["quadrant"] == QUADRANTS["major"]][:5]
-    names_zh = "、".join(major) or "尚無議題同時達到衝擊與財務重大性門檻"
-    names_en = ", ".join(major) or "no topic has reached both thresholds yet"
-    zh = (
-        "AI 草稿，需人工審閱。"
-        f"本次評估共回收 {response_count} 份有效問卷，涵蓋 {stakeholder_count} 類利害關係人。"
-        f"依衝擊重大性與財務重大性門檻判定，目前優先重大主題為：{names_zh}。"
-        "學校應保留問卷設計、門檻設定、權重設定、分群分析與管理者審閱紀錄，作為 GRI 3-1 至 GRI 3-3 揭露佐證。"
-    )
-    en = (
-        "AI draft, human review required. "
-        f"The assessment collected {response_count} valid responses from {stakeholder_count} stakeholder groups. "
-        f"The current priority material topics are: {names_en}. "
-        "The university should retain the survey design, threshold rationale, weighting settings and stakeholder segment analysis as reporting evidence."
-    )
-    return zh, en
-
-
-def generate_ai_analysis(response_count: int, stakeholder_count: int, topics: list[dict]) -> tuple[str, str]:
-    settings = get_settings()
-    fallback = fallback_analysis(response_count, stakeholder_count, topics)
-    if not settings.openai_api_key or response_count == 0:
-        return fallback
-    try:
-        client = OpenAI(api_key=settings.openai_api_key)
-        safe_topics = [
-            {
-                "code": item["code"],
-                "name": item["name"],
-                "category": item["category"],
-                "impact": item["impact"],
-                "financial": item["financial"],
-                "weighted_impact": item["weighted_impact"],
-                "weighted_financial": item["weighted_financial"],
-                "response_count": item["response_count"],
-                "quadrant": item["quadrant"],
-            }
-            for item in topics
-        ]
-        result = client.responses.create(
-            model=settings.openai_model,
-            input=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Write concise double materiality assessment text for a Taiwanese university. "
-                        "Use only aggregate data. Mark all output as AI draft requiring human review. "
-                        "Return JSON with analysis_zh and analysis_en."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "response_count": response_count,
-                            "stakeholder_count": stakeholder_count,
-                            "topics": safe_topics,
-                        },
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            text={"format": {"type": "json_object"}},
-        )
-        data = json.loads(result.output_text)
-        return data["analysis_zh"], data["analysis_en"]
-    except Exception:
-        return fallback
 
 
 def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
@@ -241,9 +167,8 @@ def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
     ).all()
     keywords = extract_keywords([answer for answer in answers if answer])
     stakeholder_count = len([item for item in stakeholders if item["count"] > 0])
-    analysis_zh, analysis_en = generate_ai_analysis(response_count, stakeholder_count, topics)
 
-    return {
+    data = {
         "campaign": campaign,
         "response_count": response_count,
         "stakeholder_count": stakeholder_count,
@@ -252,6 +177,11 @@ def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
         "stakeholders": stakeholders,
         "stakeholder_topics": stakeholder_topics,
         "keywords": keywords,
-        "analysis_zh": analysis_zh,
-        "analysis_en": analysis_en,
     }
+    fallback = fallback_ai_sections(data)
+    ai_version = latest_ai_analysis(db, campaign.id)
+    ai = analysis_content(ai_version, fallback)
+    data["ai_analysis"] = ai
+    data["analysis_zh"] = ai["zh_summary"]
+    data["analysis_en"] = ai["en_summary"]
+    return data

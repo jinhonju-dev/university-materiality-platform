@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from .ai_analysis import create_ai_analysis_version, latest_ai_analysis, list_ai_analysis_versions, version_to_dict
 from .analytics import build_analytics
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
@@ -20,6 +21,8 @@ from .matrix_image import create_matrix_png
 from .models import AuditLog, InvitationCode, StakeholderGroup, SurveyCampaign, SurveyDraft, SurveyResponse, Topic, TopicScore, User
 from .report import create_materiality_report
 from .schemas import (
+    AIAnalysisGenerateRequest,
+    AIAnalysisVersionOut,
     AnalyticsOut,
     AnonymousSurveyDraftIn,
     AnonymousSurveySubmit,
@@ -646,6 +649,48 @@ def analytics(
     db: Session = Depends(get_db),
 ):
     return build_analytics(db, get_campaign_or_404(db, campaign_id))
+
+
+@app.get("/api/admin/ai-analyses", response_model=list[AIAnalysisVersionOut])
+def list_ai_analyses(
+    campaign_id: int | None = None,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, campaign_id)
+    return [version_to_dict(version) for version in list_ai_analysis_versions(db, campaign.id)]
+
+
+@app.get("/api/admin/ai-analyses/latest", response_model=AIAnalysisVersionOut | None)
+def get_latest_ai_analysis(
+    campaign_id: int | None = None,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, campaign_id)
+    version = latest_ai_analysis(db, campaign.id)
+    return version_to_dict(version) if version else None
+
+
+@app.post("/api/admin/ai-analyses/generate", response_model=AIAnalysisVersionOut)
+def generate_ai_analysis_endpoint(
+    payload: AIAnalysisGenerateRequest,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, payload.campaign_id)
+    analytics_data = build_analytics(db, campaign)
+    version = create_ai_analysis_version(
+        db,
+        campaign,
+        analytics_data,
+        user=user,
+        overwrite_active=payload.overwrite_active,
+    )
+    log_event(db, "generate_ai_analysis", "survey_campaign", str(campaign.id), user=user, detail=f"version={version.version}")
+    db.commit()
+    db.refresh(version)
+    return version_to_dict(version)
 
 
 @app.get("/api/reports/materiality.docx")

@@ -1,4 +1,4 @@
-import { DEMO_MODE, demoAnalytics, demoCampaign, demoCampaigns, demoInvitations, demoLogin, demoStakeholderGroups, demoTopicAdmins, demoTopics } from "./demo";
+import { DEMO_MODE, demoAIAnalysisVersion, demoAnalytics, demoCampaign, demoCampaigns, demoInvitations, demoLogin, demoStakeholderGroups, demoTopicAdmins, demoTopics } from "./demo";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -61,6 +61,11 @@ export async function api<T>(
       return { ...current, ...updates } as T;
     }
     if (path === "/analytics") return demoAnalytics as T;
+    if (path === "/admin/ai-analyses") return [demoAIAnalysisVersion] as T;
+    if (path === "/admin/ai-analyses/latest") return demoAIAnalysisVersion as T;
+    if (path === "/admin/ai-analyses/generate") {
+      return { ...demoAIAnalysisVersion, id: Date.now(), version: demoAIAnalysisVersion.version + 1, created_at: new Date().toISOString() } as T;
+    }
     if (path === "/admin/stakeholder-groups") return demoStakeholderGroups as T;
     if (path.startsWith("/admin/stakeholder-groups/")) {
       const id = Number(path.split("/").pop());

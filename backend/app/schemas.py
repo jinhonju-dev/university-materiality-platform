@@ -259,6 +259,37 @@ class KeywordMetric(BaseModel):
     count: int
 
 
+class AIAnalysisContent(BaseModel):
+    zh_summary: str
+    en_summary: str
+    material_topic_ranking: str
+    stakeholder_difference_analysis: str
+    management_recommendations: str
+    report_paragraph_zh: str
+    report_paragraph_en: str
+    gri_3_1: str
+    gri_3_2: str
+    gri_3_3: str
+    disclaimer: str
+
+
+class AIAnalysisVersionOut(BaseModel):
+    id: int
+    campaign_id: int
+    version: int
+    model: str
+    prompt_version: str
+    input_hash: str
+    content: AIAnalysisContent
+    is_active: bool
+    created_at: datetime
+
+
+class AIAnalysisGenerateRequest(BaseModel):
+    campaign_id: int | None = None
+    overwrite_active: bool = True
+
+
 class MaterialityReportRequest(BaseModel):
     campaign_id: int | None = None
     matrix_png_base64: str | None = Field(default=None, max_length=8_000_000)
@@ -273,5 +304,6 @@ class AnalyticsOut(BaseModel):
     stakeholders: list[StakeholderMetric]
     stakeholder_topics: list[StakeholderTopicMetric]
     keywords: list[KeywordMetric]
+    ai_analysis: AIAnalysisContent
     analysis_zh: str
     analysis_en: str

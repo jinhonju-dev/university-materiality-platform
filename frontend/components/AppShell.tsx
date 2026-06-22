@@ -17,8 +17,9 @@ import {
 
 import { DEMO_MODE } from "@/lib/demo";
 import type { User } from "@/lib/types";
-import { Dashboard } from "./Dashboard";
 import { CampaignAdmin } from "./CampaignAdmin";
+import { Dashboard } from "./Dashboard";
+import { ReportAdmin } from "./ReportAdmin";
 import { StakeholderAdmin } from "./StakeholderAdmin";
 import { Survey } from "./Survey";
 import { TopicAdmin } from "./TopicAdmin";
@@ -48,7 +49,7 @@ export function AppShell({
 
   const nav: NavItem[] = user.role === "admin" ? [
     { id: "dashboard", label: "分析儀表板", icon: BarChart3 },
-    { id: "survey", label: "問卷預覽", icon: ClipboardList },
+    { id: "survey", label: "問卷填答", icon: ClipboardList },
     { id: "stakeholders", label: "利害關係人", icon: Users },
     { id: "topics", label: "議題庫", icon: Database },
     { id: "campaigns", label: "問卷活動", icon: CalendarDays },
@@ -64,7 +65,7 @@ export function AppShell({
         <button className="close-sidebar" onClick={() => setMobileOpen(false)}><X /></button>
         <div className="brand">
           <span className="brand-mark"><Leaf size={20} /></span>
-          <span>大學永續</span>
+          <span>永續重大性</span>
           <small>Materiality OS</small>
         </div>
         <nav>
@@ -81,7 +82,6 @@ export function AppShell({
               }}
             >
               <item.icon size={18} /> {item.label}
-              {item.disabled && <small>phase 2</small>}
             </button>
           ))}
         </nav>
@@ -95,13 +95,13 @@ export function AppShell({
         </div>
       </aside>
       <section className="main-area">
-        {DEMO_MODE && <div className="public-demo-bar">Demo mode：使用示範資料，不會永久保存問卷或匯出正式資料。</div>}
+        {DEMO_MODE && <div className="public-demo-bar">Demo mode：此版本使用展示資料，不會永久儲存正式問卷。</div>}
         {view === "survey" && <Survey token={token} />}
         {view === "dashboard" && <Dashboard token={token} />}
         {view === "stakeholders" && <StakeholderAdmin token={token} />}
         {view === "topics" && <TopicAdmin token={token} />}
         {view === "campaigns" && <CampaignAdmin token={token} />}
-        {view !== "survey" && view !== "dashboard" && view !== "stakeholders" && view !== "topics" && view !== "campaigns" && <Dashboard token={token} />}
+        {view === "reports" && <ReportAdmin token={token} />}
       </section>
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
     </main>

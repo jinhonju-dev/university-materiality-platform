@@ -1,4 +1,4 @@
-import type { Analytics, Campaign, CampaignAdmin, InvitationCode, StakeholderGroupAdmin, Topic, TopicAdmin, User } from "./types";
+import type { AIAnalysisVersion, Analytics, Campaign, CampaignAdmin, InvitationCode, StakeholderGroupAdmin, Topic, TopicAdmin, User } from "./types";
 
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -39,6 +39,42 @@ const demoScores = [
   [4.52, 4.58, 4.47],
   [4.39, 4.44, 4.63],
 ];
+
+export const demoAIAnalysis = {
+  zh_summary:
+    "AI 草稿，需人工審閱。示範資料顯示，能源管理、人才培育與資訊安全同時具有較高衝擊重大性與財務重大性，建議納入年度重大主題。",
+  en_summary:
+    "AI draft, human review required. Demo data indicates that energy management, talent development and information security have high impact and financial materiality.",
+  material_topic_ranking:
+    "重大主題排序建議：1. E01 能源管理；2. S02 人才培育與學習發展；3. G01 資訊安全與隱私；4. E02 溫室氣體排放。",
+  stakeholder_difference_analysis:
+    "教師與政府機關對治理與氣候相關議題評分較高；學生對人才培育與學習發展較敏感。正式報告應搭配樣本數與權重解讀差異。",
+  management_recommendations:
+    "建議由責任單位確認各重大主題之管理方針、年度目標、KPI、改善措施與追蹤頻率，並保留人工審閱紀錄。",
+  report_paragraph_zh:
+    "AI 草稿，需人工審閱。本次示範評估依利害關係人回饋與雙重重大性門檻，辨識能源管理、人才培育與資訊安全為優先重大主題。",
+  report_paragraph_en:
+    "AI draft, human review required. The demo assessment identifies energy management, talent development and information security as priority material topics.",
+  gri_3_1:
+    "本校透過利害關係人識別、議題庫建立、問卷評分、衝擊重大性與財務重大性分析、權重設定及管理者審閱，決定年度重大主題。",
+  gri_3_2:
+    "依本次示範評估結果，重大主題包含：E01 能源管理、S02 人才培育與學習發展、G01 資訊安全與隱私。",
+  gri_3_3:
+    "各重大主題須由責任單位確認管理方針、政策承諾、行動方案、有效性追蹤、指標與目標，並於報告書揭露。",
+  disclaimer: "AI 草稿，需人工審閱。",
+};
+
+export const demoAIAnalysisVersion: AIAnalysisVersion = {
+  id: 1,
+  campaign_id: 1,
+  version: 1,
+  model: "demo-fallback",
+  prompt_version: "gri-v1",
+  input_hash: "demo",
+  content: demoAIAnalysis,
+  is_active: true,
+  created_at: "2026-08-01T00:00:00+08:00",
+};
 
 function quadrant(impact: number, financial: number) {
   const highImpact = impact >= demoCampaign.impact_threshold;
@@ -97,10 +133,9 @@ export const demoAnalytics: Analytics = {
     { keyword: "人才培育", count: 153 },
     { keyword: "資訊安全", count: 128 },
   ],
-  analysis_zh:
-    "AI 草稿，需人工審閱。示範資料顯示，能源管理、人才培育與資訊安全同時具有較高衝擊重大性與財務重大性，建議納入年度重大主題並由責任單位確認管理方針與 KPI。",
-  analysis_en:
-    "AI draft, human review required. Demo data indicates that energy management, talent development and information security have high impact and financial materiality.",
+  ai_analysis: demoAIAnalysis,
+  analysis_zh: demoAIAnalysis.zh_summary,
+  analysis_en: demoAIAnalysis.en_summary,
 };
 
 export const demoStakeholderGroups: StakeholderGroupAdmin[] = [
