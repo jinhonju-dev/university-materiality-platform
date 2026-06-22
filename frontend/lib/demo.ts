@@ -4,7 +4,7 @@ export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 export const demoCampaign: Campaign = {
   id: 1,
-  title: "2026 大學永續報告書重大性問卷",
+  title: "2026 大學永續報告書利害關係人問卷",
   year: 2026,
   status: "active",
   is_open: true,
@@ -13,21 +13,21 @@ export const demoCampaign: Campaign = {
 };
 
 export const demoTopics: Topic[] = [
-  { id: 1, code: "E01", category: "E", name_zh: "能源管理", name_en: "Energy Management", description: "校園能源使用、節能改善與再生能源規劃。", sort_order: 1 },
-  { id: 2, code: "E02", category: "E", name_zh: "溫室氣體排放", name_en: "Greenhouse Gas Emissions", description: "溫室氣體盤查、減量目標與碳管理。", sort_order: 2 },
-  { id: 3, code: "E03", category: "E", name_zh: "水資源管理", name_en: "Water Resources", description: "用水效率、回收水與校園水風險管理。", sort_order: 3 },
-  { id: 4, code: "S01", category: "S", name_zh: "職業安全衛生", name_en: "Occupational Safety", description: "教職員工與承攬商安全衛生管理。", sort_order: 4 },
-  { id: 5, code: "S02", category: "S", name_zh: "人才培育與發展", name_en: "Talent Development", description: "教學品質、學生能力培育與員工發展。", sort_order: 5 },
-  { id: 6, code: "G01", category: "G", name_zh: "資訊安全與隱私", name_en: "Information Security and Privacy", description: "個資保護、資安治理與事件應變。", sort_order: 6 },
+  { id: 1, code: "E01", category: "E", name_zh: "能源管理", name_en: "Energy Management", description: "校園能源使用、節能措施、再生能源採購與用電效率管理。", sort_order: 1 },
+  { id: 2, code: "E02", category: "E", name_zh: "溫室氣體排放", name_en: "Greenhouse Gas Emissions", description: "溫室氣體盤查、減碳目標、排放管理與氣候行動。", sort_order: 2 },
+  { id: 3, code: "E03", category: "E", name_zh: "水資源", name_en: "Water Resources", description: "用水效率、水回收、節水措施與水資源風險管理。", sort_order: 3 },
+  { id: 4, code: "S01", category: "S", name_zh: "職業安全衛生", name_en: "Occupational Safety", description: "教職員工與學生之校園安全、實驗安全及健康促進。", sort_order: 4 },
+  { id: 5, code: "S02", category: "S", name_zh: "人才培育與學習發展", name_en: "Talent Development", description: "學生學習、教師專業發展、跨域能力與永續教育。", sort_order: 5 },
+  { id: 6, code: "G01", category: "G", name_zh: "資訊安全與隱私", name_en: "Information Security and Privacy", description: "資安治理、個資保護、系統韌性與資料安全。", sort_order: 6 },
 ];
 
 export const demoTopicAdmins: TopicAdmin[] = demoTopics.map((topic) => ({
   ...topic,
   gri_mapping: topic.code.startsWith("E") ? "GRI 302 / 305" : topic.code.startsWith("S") ? "GRI 401 / 403" : "GRI 2 / 3",
   sdgs_mapping: topic.code.startsWith("E") ? "SDG 7, 13" : topic.code.startsWith("S") ? "SDG 4, 8" : "SDG 16",
-  responsible_unit: "永續辦公室",
-  management_approach: "年度檢討重大主題、設定改善計畫並追蹤 KPI。",
-  kpi: "年度改善完成率",
+  responsible_unit: "永續發展辦公室",
+  management_approach: "每年檢視重大主題、管理方針、年度目標與 KPI。",
+  kpi: "年度改善目標與追蹤指標",
   is_active: true,
 }));
 
@@ -40,6 +40,15 @@ const demoScores = [
   [4.39, 4.44, 4.63],
 ];
 
+function quadrant(impact: number, financial: number) {
+  const highImpact = impact >= demoCampaign.impact_threshold;
+  const highFinancial = financial >= demoCampaign.financial_threshold;
+  if (highImpact && highFinancial) return "重大主題";
+  if (highImpact) return "揭露主題";
+  if (highFinancial) return "風險主題";
+  return "觀察主題";
+}
+
 export const demoAnalytics: Analytics = {
   campaign: demoCampaign,
   response_count: 1250,
@@ -47,8 +56,6 @@ export const demoAnalytics: Analytics = {
   completion_rate: 83.6,
   topics: demoTopics.map((topic, index) => {
     const [organization, impact, financial] = demoScores[index];
-    const highImpact = impact >= demoCampaign.impact_threshold;
-    const highFinancial = financial >= demoCampaign.financial_threshold;
     return {
       topic_id: topic.id,
       code: topic.code,
@@ -57,10 +64,10 @@ export const demoAnalytics: Analytics = {
       organization,
       impact,
       financial,
-      weighted_impact: impact + 0.03,
-      weighted_financial: financial + 0.02,
+      weighted_impact: Number((impact + 0.03).toFixed(2)),
+      weighted_financial: Number((financial + 0.02).toFixed(2)),
       response_count: 1250,
-      quadrant: highImpact && highFinancial ? "重大主題" : highImpact ? "揭露主題" : highFinancial ? "風險主題" : "觀察主題",
+      quadrant: quadrant(impact, financial),
     };
   }),
   stakeholders: [
@@ -87,25 +94,25 @@ export const demoAnalytics: Analytics = {
   ),
   keywords: [
     { keyword: "能源", count: 186 },
-    { keyword: "人才", count: 153 },
-    { keyword: "資安", count: 128 },
+    { keyword: "人才培育", count: 153 },
+    { keyword: "資訊安全", count: 128 },
   ],
   analysis_zh:
-    "AI 草稿，需人工審閱。示範資料顯示能源管理、人才培育與資訊安全同時具備較高衝擊與財務重大性，建議列為優先管理與揭露主題。",
+    "AI 草稿，需人工審閱。示範資料顯示，能源管理、人才培育與資訊安全同時具有較高衝擊重大性與財務重大性，建議納入年度重大主題並由責任單位確認管理方針與 KPI。",
   analysis_en:
     "AI draft, human review required. Demo data indicates that energy management, talent development and information security have high impact and financial materiality.",
 };
 
 export const demoStakeholderGroups: StakeholderGroupAdmin[] = [
   { id: 1, name: "學生", scope: "internal", description: "在學學生", weight: 1.0, is_active: true, response_count: 532 },
-  { id: 2, name: "教師", scope: "internal", description: "專兼任教師", weight: 1.2, is_active: true, response_count: 205 },
-  { id: 3, name: "職員", scope: "internal", description: "行政與技術人員", weight: 1.1, is_active: true, response_count: 178 },
+  { id: 2, name: "教師", scope: "internal", description: "專任與兼任教師", weight: 1.2, is_active: true, response_count: 205 },
+  { id: 3, name: "職員", scope: "internal", description: "行政與校務人員", weight: 1.1, is_active: true, response_count: 178 },
   { id: 4, name: "校友", scope: "external", description: "畢業校友", weight: 0.9, is_active: true, response_count: 126 },
   { id: 5, name: "政府機關", scope: "external", description: "主管機關與地方政府", weight: 1.2, is_active: true, response_count: 35 },
   { id: 6, name: "企業", scope: "external", description: "企業夥伴", weight: 1.0, is_active: true, response_count: 74 },
-  { id: 7, name: "廠商", scope: "external", description: "供應商與承攬商", weight: 0.9, is_active: true, response_count: 27 },
-  { id: 8, name: "社區居民", scope: "external", description: "鄰近社區", weight: 1.0, is_active: true, response_count: 58 },
-  { id: 9, name: "NGO", scope: "external", description: "非營利組織", weight: 1.1, is_active: true, response_count: 15 },
+  { id: 7, name: "廠商", scope: "external", description: "供應商與合作廠商", weight: 0.9, is_active: true, response_count: 27 },
+  { id: 8, name: "社區居民", scope: "external", description: "周邊社區", weight: 1.0, is_active: true, response_count: 58 },
+  { id: 9, name: "NGO", scope: "external", description: "非政府組織", weight: 1.1, is_active: true, response_count: 15 },
 ];
 
 export const demoCampaigns: CampaignAdmin[] = [
@@ -142,7 +149,7 @@ export function demoLogin(email: string, password: string): { access_token: stri
         email,
         name: "示範管理者",
         role: "admin",
-        stakeholder_group: { id: 1, name: "教師", scope: "internal", weight: 1.2 },
+        stakeholder_group: { id: 2, name: "教師", scope: "internal", weight: 1.2 },
       },
     };
   }
@@ -154,7 +161,7 @@ export function demoLogin(email: string, password: string): { access_token: stri
         email,
         name: "示範填答者",
         role: "respondent",
-        stakeholder_group: { id: 3, name: "學生", scope: "internal", weight: 1.0 },
+        stakeholder_group: { id: 1, name: "學生", scope: "internal", weight: 1.0 },
       },
     };
   }

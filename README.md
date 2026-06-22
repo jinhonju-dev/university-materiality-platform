@@ -1,6 +1,6 @@
 # University Materiality Platform
 
-大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。
+大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。第三階段已補上議題庫管理與問卷活動管理。第四階段已補上正式 Word 報告與重大性矩陣圖片輸出。
 
 ## 架構
 
@@ -38,6 +38,16 @@
 - `PATCH /api/admin/campaigns/{campaign_id}`
 - `GET /api/admin/campaigns/{campaign_id}/invitations`
 - `POST /api/admin/campaigns/{campaign_id}/invitations`
+
+## 第四階段：正式 Word 報告與矩陣圖片
+
+- Word 報告改為正式 `.docx`，內含封面、2.3 利害關係人溝通、2.4 重大主題鑑別流程、2.5 雙重重大性評估結果、2.6 重大主題管理方針、GRI 3-1 / 3-2 / 3-3 與附錄。
+- 報告會內嵌重大性矩陣 PNG；Dashboard 下載 Word 時會把目前畫面上的矩陣圖一併送至後端。
+- 後端提供 fallback 矩陣 PNG 產生器，不需額外圖表套件。
+- 新增獨立矩陣圖片 API：`GET /api/exports/materiality-matrix.png`
+- Word 報告支援：
+  - `GET /api/reports/materiality.docx?campaign_id={id}`
+  - `POST /api/reports/materiality.docx`，可傳入 `campaign_id` 與 `matrix_png_base64`
 
 ## 環境變數
 

@@ -1,3 +1,5 @@
+import base64
+import binascii
 import json
 import secrets
 import string
@@ -14,6 +16,7 @@ from .analytics import build_analytics
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .export import create_csv_export, create_excel_export
+from .matrix_image import create_matrix_png
 from .models import AuditLog, InvitationCode, StakeholderGroup, SurveyCampaign, SurveyDraft, SurveyResponse, Topic, TopicScore, User
 from .report import create_materiality_report
 from .schemas import (
@@ -28,6 +31,7 @@ from .schemas import (
     InvitationGenerateRequest,
     InviteLoginRequest,
     LoginRequest,
+    MaterialityReportRequest,
     StakeholderGroupAdminOut,
     StakeholderGroupCreate,
     StakeholderGroupUpdate,
@@ -620,6 +624,21 @@ def get_campaign_or_404(db: Session, campaign_id: int | None) -> SurveyCampaign:
     return campaign
 
 
+def decode_matrix_png(matrix_png_base64: str | None) -> bytes | None:
+    if not matrix_png_base64:
+        return None
+    payload = matrix_png_base64
+    if "," in payload:
+        payload = payload.split(",", 1)[1]
+    try:
+        image = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid matrix PNG payload.") from exc
+    if not image.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=422, detail="Matrix image must be a PNG.")
+    return image
+
+
 @app.get("/api/analytics", response_model=AnalyticsOut)
 def analytics(
     campaign_id: int | None = None,
@@ -643,6 +662,42 @@ def download_report(
     return StreamingResponse(
         report,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/reports/materiality.docx")
+def download_report_with_matrix(
+    payload: MaterialityReportRequest,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, payload.campaign_id)
+    report = create_materiality_report(build_analytics(db, campaign), matrix_image=decode_matrix_png(payload.matrix_png_base64))
+    log_event(db, "export_word", "survey_campaign", str(campaign.id), user=user, detail="with_matrix_image=true")
+    db.commit()
+    filename = f"materiality-report-{campaign.year}.docx"
+    return StreamingResponse(
+        report,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/materiality-matrix.png")
+def download_matrix_png(
+    campaign_id: int | None = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, campaign_id)
+    image = create_matrix_png(build_analytics(db, campaign))
+    log_event(db, "export_matrix_png", "survey_campaign", str(campaign.id), user=user)
+    db.commit()
+    filename = f"materiality-matrix-{campaign.year}.png"
+    return StreamingResponse(
+        image,
+        media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

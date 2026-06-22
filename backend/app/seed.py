@@ -19,17 +19,17 @@ GROUPS = [
 ]
 
 TOPICS = [
-    ("E01", "E", "能源管理", "Energy Management", "校園能源使用、節能改善與再生能源規劃。", 1),
-    ("E02", "E", "溫室氣體排放", "Greenhouse Gas Emissions", "溫室氣體盤查、減量目標與碳管理。", 2),
-    ("E03", "E", "水資源管理", "Water Resources", "用水效率、回收水與校園水風險管理。", 3),
-    ("E04", "E", "廢棄物管理", "Waste Management", "廢棄物減量、分類、回收與合規處理。", 4),
-    ("S01", "S", "職業安全衛生", "Occupational Safety", "教職員工與承攬商安全衛生管理。", 5),
-    ("S02", "S", "人才培育與發展", "Talent Development", "教學品質、學生能力培育與員工發展。", 6),
-    ("S03", "S", "多元共融與平等", "Diversity, Equity and Inclusion", "平等機會、反歧視與友善校園。", 7),
-    ("S04", "S", "社區參與", "Community Engagement", "大學社會責任、在地連結與公益參與。", 8),
-    ("G01", "G", "資訊安全與隱私", "Information Security and Privacy", "個資保護、資安治理與事件應變。", 9),
-    ("G02", "G", "法規遵循", "Compliance", "教育、勞動、環境與採購等法規遵循。", 10),
-    ("G03", "G", "誠信治理與倫理", "Integrity and Ethics", "治理透明、利益衝突管理與研究倫理。", 11),
+    ("E01", "E", "能源管理", "Energy Management", "校園能源使用、節能措施、再生能源採購與用電效率管理。", 1),
+    ("E02", "E", "溫室氣體排放", "Greenhouse Gas Emissions", "溫室氣體盤查、減碳目標、排放管理與氣候行動。", 2),
+    ("E03", "E", "水資源", "Water Resources", "用水效率、水回收、節水措施與水資源風險管理。", 3),
+    ("E04", "E", "廢棄物管理", "Waste Management", "廢棄物減量、分類回收、有害廢棄物與循環利用。", 4),
+    ("S01", "S", "職業安全衛生", "Occupational Safety", "教職員工與學生之校園安全、實驗安全及健康促進。", 5),
+    ("S02", "S", "人才培育與學習發展", "Talent Development", "學生學習、教師專業發展、跨域能力與永續教育。", 6),
+    ("S03", "S", "多元共融", "Diversity, Equity and Inclusion", "性別平等、友善校園、多元文化與弱勢支持。", 7),
+    ("S04", "S", "社區參與", "Community Engagement", "大學社會責任、地方連結、社區共創與公共參與。", 8),
+    ("G01", "G", "資訊安全與隱私", "Information Security and Privacy", "資安治理、個資保護、系統韌性與資料安全。", 9),
+    ("G02", "G", "法遵", "Compliance", "法規遵循、內部控制、採購與校務治理之合規管理。", 10),
+    ("G03", "G", "誠信經營與倫理", "Integrity and Ethics", "誠信治理、研究倫理、利益衝突管理與申訴機制。", 11),
 ]
 
 
@@ -57,7 +57,7 @@ def seed_database(db: Session) -> None:
         )
 
     if not db.scalar(select(SurveyCampaign.id).limit(1)):
-        db.add(SurveyCampaign(title="2026 大學永續報告書重大性問卷", year=2026, status="active"))
+        db.add(SurveyCampaign(title="2026 大學永續報告書利害關係人問卷", year=2026, status="active"))
         db.flush()
 
     teacher_group = db.scalar(select(StakeholderGroup).where(StakeholderGroup.name == "教師"))

@@ -80,7 +80,7 @@ export function MatrixChart({
               `財務重大性：${topic.financial.toFixed(2)}`,
               `組織影響：${topic.organization.toFixed(2)}`,
               `回答數：${topic.response_count}`,
-              `判定：${topic.quadrant}`,
+              `判定象限：${topic.quadrant}`,
             ];
           },
         },
@@ -124,8 +124,9 @@ export function MatrixChart({
         const point = meta.data[0];
         if (!point) return;
         const { x, y } = point.getProps(["x", "y"], true);
-        const offset = index % 2 === 0 ? 12 : -18;
-        ctx.fillText(topic.code, x + 10, y + offset);
+        const offsetX = index % 3 === 0 ? 12 : index % 3 === 1 ? -34 : 14;
+        const offsetY = index % 2 === 0 ? 14 : -18;
+        ctx.fillText(topic.code, x + offsetX, y + offsetY);
       });
       ctx.restore();
     },
@@ -136,7 +137,7 @@ export function MatrixChart({
       {activeTopics.length ? (
         <Scatter data={data} options={options} plugins={[matrixPlugin]} />
       ) : (
-        <div className="empty-chart">尚未收到有效問卷，矩陣圖會在資料回收後顯示。</div>
+        <div className="empty-chart">尚無有效填答資料，完成問卷後將自動產生重大性矩陣。</div>
       )}
     </div>
   );

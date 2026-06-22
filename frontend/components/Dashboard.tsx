@@ -40,7 +40,7 @@ export function Dashboard({ token }: { token: string }) {
     try {
       setData(await api<Analytics>("/analytics", {}, token));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "分析資料載入失敗。");
+      setError(caught instanceof Error ? caught.message : "讀取分析資料失敗。");
     } finally {
       setLoading(false);
     }
@@ -50,8 +50,8 @@ export function Dashboard({ token }: { token: string }) {
     void load();
   }, [load]);
 
-  if (loading) return <div className="page-loader"><RefreshCw className="spin" /> 正在載入重大性分析...</div>;
-  if (!data) return <div className="error-state">{error}<button onClick={load}>重新載入</button></div>;
+  if (loading) return <div className="page-loader"><RefreshCw className="spin" /> 正在讀取重大性分析...</div>;
+  if (!data) return <div className="error-state">{error}<button onClick={load}>重新讀取</button></div>;
 
   const analytics = data;
 
@@ -91,11 +91,11 @@ export function Dashboard({ token }: { token: string }) {
       <header className="page-header">
         <div>
           <span className="eyebrow green">DOUBLE MATERIALITY</span>
-          <h1>重大性分析儀表板</h1>
-          <p>{data.campaign.title}，同時呈現未加權平均、加權平均與利害關係人分群。</p>
+          <h1>雙重重大性評估儀表板</h1>
+          <p>{data.campaign.title}，整合利害關係人問卷、衝擊重大性、財務重大性、權重與分群分析。</p>
         </div>
         <div className="header-actions">
-          <button className="button secondary" onClick={load}><RefreshCw size={16} />更新</button>
+          <button className="button secondary" onClick={load}><RefreshCw size={16} />重新整理</button>
           <button className="button secondary" onClick={() => downloadCsv(token, data.campaign.id, true)}>
             <ArrowDownToLine size={17} /> 去識別 CSV
           </button>
@@ -103,10 +103,10 @@ export function Dashboard({ token }: { token: string }) {
             <FileSpreadsheet size={17} /> Excel
           </button>
           <button className="button secondary" onClick={() => downloadMatrixPng(`materiality-matrix-${data.campaign.year}.png`)}>
-            <ArrowDownToLine size={17} /> PNG
+            <ArrowDownToLine size={17} /> 矩陣 PNG
           </button>
           <button className="button primary" onClick={() => downloadReport(token, data.campaign.id)}>
-            <ArrowDownToLine size={17} /> Word
+            <ArrowDownToLine size={17} /> Word 報告
           </button>
         </div>
       </header>
@@ -114,13 +114,13 @@ export function Dashboard({ token }: { token: string }) {
       <section className="metric-grid">
         <article className="metric-card">
           <span className="metric-icon mint"><FileText /></span>
-          <div><span>有效回覆</span><strong>{data.response_count.toLocaleString()}</strong></div>
-          <small><ArrowUpRight /> 回收率 {data.completion_rate}%</small>
+          <div><span>有效回收數</span><strong>{data.response_count.toLocaleString()}</strong></div>
+          <small><ArrowUpRight /> 完成率 {data.completion_rate}%</small>
         </article>
         <article className="metric-card">
           <span className="metric-icon sand"><Users /></span>
           <div><span>利害關係人類別</span><strong>{data.stakeholder_count}</strong></div>
-          <small><Check /> 含權重設定</small>
+          <small><Check /> 已納入權重</small>
         </article>
         <article className="metric-card">
           <span className="metric-icon blue"><Target /></span>
@@ -129,11 +129,11 @@ export function Dashboard({ token }: { token: string }) {
         </article>
         <article className="metric-card accent-card">
           <span>最高排序議題</span>
-          <strong>{topScore?.response_count ? `${topScore.code} ${topScore.name}` : "尚無填答"}</strong>
+          <strong>{topScore?.response_count ? `${topScore.code} ${topScore.name}` : "尚無資料"}</strong>
           <small>
             {topScore?.response_count
               ? `平均分數 ${((topScore.impact + topScore.financial) / 2).toFixed(2)}`
-              : "等待問卷回收"}
+              : "待問卷回收後產生"}
           </small>
         </article>
       </section>
@@ -162,7 +162,7 @@ export function Dashboard({ token }: { token: string }) {
       <section className="dashboard-grid">
         <article className="panel matrix-panel">
           <div className="panel-heading">
-            <div><h2>雙重重大性矩陣</h2><p>以衝擊重大性與財務重大性判定四象限。</p></div>
+            <div><h2>雙重重大性矩陣</h2><p>Y 軸為衝擊重大性，X 軸為財務重大性；虛線為年度門檻。</p></div>
             <div className="legend">
               <span><i className="environment" />E</span>
               <span><i className="social" />S</span>
@@ -177,7 +177,7 @@ export function Dashboard({ token }: { token: string }) {
 
         <article className="panel ai-panel">
           <div className="panel-heading">
-            <div className="ai-title"><span><BrainCircuit /></span><div><h2>AI 分析草稿</h2><p>僅使用彙整資料，仍需人工審閱。</p></div></div>
+            <div className="ai-title"><span><BrainCircuit /></span><div><h2>AI 分析摘要</h2><p>僅使用彙整後資料與去識別化文字，內容需人工審閱。</p></div></div>
             <div className="language-switch">
               <button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中文</button>
               <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
@@ -192,7 +192,7 @@ export function Dashboard({ token }: { token: string }) {
             <div className="keyword-cloud">
               {data.keywords.length ? data.keywords.map((item) => (
                 <span key={item.keyword}>{item.keyword}<b>{item.count}</b></span>
-              )) : <em>尚無關鍵字資料</em>}
+              )) : <em>尚無足夠開放題資料</em>}
             </div>
           </div>
         </article>
@@ -200,7 +200,7 @@ export function Dashboard({ token }: { token: string }) {
 
       <section className="panel segment-panel">
         <div className="panel-heading">
-          <div><h2>利害關係人分群摘要</h2><p>列出各群樣本數、權重與目前篩選狀態。</p></div>
+          <div><h2>利害關係人分群分析</h2><p>可切換各分群檢視重大性結果，並比較樣本數與權重。</p></div>
         </div>
         <div className="segment-grid">
           {data.stakeholders.map((group) => (
@@ -219,8 +219,8 @@ export function Dashboard({ token }: { token: string }) {
 
       <section className="panel topic-panel">
         <div className="panel-heading">
-          <div><h2>議題評估結果</h2><p>列出樣本數、未加權平均、加權平均與四象限判定。</p></div>
-          <span className="record-count">{filteredTopics.length} 項議題</span>
+          <div><h2>議題排序與判定</h2><p>列出未加權、加權結果、樣本數與四象限判定。</p></div>
+          <span className="record-count">{filteredTopics.length} 筆議題</span>
         </div>
         <div className="topic-table-wrap">
           <table className="topic-table">

@@ -20,7 +20,7 @@ export async function api<T>(
     if (path === "/auth/login") {
       const credentials = JSON.parse(String(options.body || "{}"));
       const result = demoLogin(credentials.email, credentials.password);
-      if (!result) throw new ApiError("示範帳號或密碼錯誤。", 401);
+      if (!result) throw new ApiError("帳號或密碼不正確。", 401);
       return result as T;
     }
     if (path === "/topics") return demoTopics as T;
@@ -100,7 +100,7 @@ export async function api<T>(
   return response.json() as Promise<T>;
 }
 
-async function downloadFile(token: string, url: string, filename: string) {
+async function downloadFile(token: string, url: string, filename: string, options: RequestInit = {}) {
   if (DEMO_MODE) {
     const blob = new Blob(["Demo mode does not contain persisted export data."], { type: "text/plain;charset=utf-8" });
     const objectUrl = URL.createObjectURL(blob);
@@ -113,9 +113,14 @@ async function downloadFile(token: string, url: string, filename: string) {
   }
 
   const response = await fetch(`${API_URL}${url}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
   });
-  if (!response.ok) throw new Error("下載失敗，請確認管理者權限與後端狀態。");
+  if (!response.ok) throw new Error("下載失敗，請確認權限與後端服務狀態。");
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -126,7 +131,15 @@ async function downloadFile(token: string, url: string, filename: string) {
 }
 
 export async function downloadReport(token: string, campaignId: number) {
-  return downloadFile(token, `/reports/materiality.docx?campaign_id=${campaignId}`, `materiality-report-${campaignId}.docx`);
+  const canvas = document.querySelector<HTMLCanvasElement>(".matrix-wrap canvas");
+  const matrixImage = canvas?.toDataURL("image/png");
+  if (!matrixImage) {
+    return downloadFile(token, `/reports/materiality.docx?campaign_id=${campaignId}`, `materiality-report-${campaignId}.docx`);
+  }
+  return downloadFile(token, "/reports/materiality.docx", `materiality-report-${campaignId}.docx`, {
+    method: "POST",
+    body: JSON.stringify({ campaign_id: campaignId, matrix_png_base64: matrixImage }),
+  });
 }
 
 export async function downloadExcel(token: string, campaignId: number) {
@@ -143,7 +156,7 @@ export async function downloadCsv(token: string, campaignId: number, anonymized 
 
 export function downloadMatrixPng(filename = "materiality-matrix.png") {
   const canvas = document.querySelector<HTMLCanvasElement>(".matrix-wrap canvas");
-  if (!canvas) throw new Error("找不到矩陣圖。");
+  if (!canvas) throw new Error("尚未產生矩陣圖。");
   const anchor = document.createElement("a");
   anchor.href = canvas.toDataURL("image/png");
   anchor.download = filename;

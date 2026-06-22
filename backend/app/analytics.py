@@ -1,6 +1,6 @@
 import json
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 
 from openai import OpenAI
 from sqlalchemy import func, select
@@ -11,11 +11,11 @@ from .models import StakeholderGroup, SurveyCampaign, SurveyResponse, Topic, Top
 
 
 KEYWORD_MAP = {
-    "能源": ("能源", "節能", "用電", "再生能源"),
+    "能源": ("能源", "用電", "節能", "再生能源"),
     "溫室氣體": ("溫室氣體", "碳", "減碳", "排放"),
-    "資安": ("資安", "資訊安全", "個資", "隱私"),
-    "人才": ("人才", "培育", "教學", "學習"),
-    "社區": ("社區", "地方", "USR", "公益"),
+    "資訊安全": ("資訊安全", "資安", "個資", "隱私"),
+    "人才培育": ("人才培育", "課程", "教學", "學生"),
+    "社區參與": ("社區參與", "社區", "USR", "地方"),
 }
 
 QUADRANTS = {
@@ -49,13 +49,13 @@ def extract_keywords(answers: list[str]) -> list[dict]:
 
 def fallback_analysis(response_count: int, stakeholder_count: int, topics: list[dict]) -> tuple[str, str]:
     major = [f"{item['code']} {item['name']}" for item in topics if item["quadrant"] == QUADRANTS["major"]][:5]
-    names_zh = "、".join(major) or "尚未有議題同時達到衝擊與財務重大性門檻"
+    names_zh = "、".join(major) or "尚無議題同時達到衝擊與財務重大性門檻"
     names_en = ", ".join(major) or "no topic has reached both thresholds yet"
     zh = (
         "AI 草稿，需人工審閱。"
-        f"本次問卷共回收 {response_count} 份有效回覆，涵蓋 {stakeholder_count} 類利害關係人。"
-        f"依雙重重大性門檻，目前優先重大主題為：{names_zh}。"
-        "建議管理者保留問卷設計、門檻設定、權重設定與分群分析結果，作為 GRI 3-1 至 GRI 3-3 揭露依據。"
+        f"本次評估共回收 {response_count} 份有效問卷，涵蓋 {stakeholder_count} 類利害關係人。"
+        f"依衝擊重大性與財務重大性門檻判定，目前優先重大主題為：{names_zh}。"
+        "學校應保留問卷設計、門檻設定、權重設定、分群分析與管理者審閱紀錄，作為 GRI 3-1 至 GRI 3-3 揭露佐證。"
     )
     en = (
         "AI draft, human review required. "

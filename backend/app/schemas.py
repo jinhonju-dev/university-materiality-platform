@@ -259,6 +259,11 @@ class KeywordMetric(BaseModel):
     count: int
 
 
+class MaterialityReportRequest(BaseModel):
+    campaign_id: int | None = None
+    matrix_png_base64: str | None = Field(default=None, max_length=8_000_000)
+
+
 class AnalyticsOut(BaseModel):
     campaign: CampaignOut
     response_count: int

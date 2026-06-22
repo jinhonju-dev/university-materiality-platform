@@ -1,3 +1,6 @@
+import base64
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -26,9 +29,9 @@ def detailed_scores(topics):
     ]
 
 
-def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
+def reset_app_database(tmp_path: Path, name: str):
     settings = get_settings()
-    settings.database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    settings.database_url = f"sqlite:///{tmp_path / name}"
     settings.seed_demo_accounts = True
     settings.secret_key = "test-secret"
 
@@ -36,6 +39,21 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
     from app.main import app
 
     Base.metadata.drop_all(bind=engine)
+    return app
+
+
+def admin_headers(client: TestClient) -> dict[str, str]:
+    admin_login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@nuk.edu.tw", "password": "admin123"},
+    )
+    assert admin_login.status_code == 200
+    return {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+
+def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
+    app = reset_app_database(tmp_path, "test.db")
+
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200
 
@@ -50,7 +68,7 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
         campaign = client.get("/api/campaigns/active", headers=headers).json()
         payload = {
             "campaign_id": campaign["id"],
-            "open_answer": "希望強化能源、資安與人才培育。",
+            "open_answer": "建議優先處理能源、資訊安全與人才培育。",
             "scores": detailed_scores(topics),
         }
         submit = client.post("/api/surveys/submit", json=payload, headers=headers)
@@ -58,13 +76,8 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
         duplicate = client.post("/api/surveys/submit", json=payload, headers=headers)
         assert duplicate.status_code == 409
 
-        admin_login = client.post(
-            "/api/auth/login",
-            json={"email": "admin@nuk.edu.tw", "password": "admin123"},
-        ).json()
-        admin_headers = {"Authorization": f"Bearer {admin_login['access_token']}"}
-
-        analytics = client.get("/api/analytics", headers=admin_headers)
+        admin = admin_headers(client)
+        analytics = client.get("/api/analytics", headers=admin)
         assert analytics.status_code == 200
         body = analytics.json()
         assert body["response_count"] == 1
@@ -72,48 +85,53 @@ def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
         assert body["topics"][0]["impact"] == 4.5
         assert any(group["name"] == "學生" and group["weight"] == 1.0 for group in body["stakeholders"])
 
-        groups = client.get("/api/admin/stakeholder-groups", headers=admin_headers)
+        groups = client.get("/api/admin/stakeholder-groups", headers=admin)
         assert groups.status_code == 200
         student_group = next(group for group in groups.json() if group["name"] == "學生")
         update = client.patch(
             f"/api/admin/stakeholder-groups/{student_group['id']}",
-            headers=admin_headers,
+            headers=admin,
             json={"weight": 1.5, "description": "Student respondents"},
         )
         assert update.status_code == 200
         assert update.json()["weight"] == 1.5
 
-        excel = client.get("/api/exports/responses.xlsx", headers=admin_headers)
+        excel = client.get("/api/exports/responses.xlsx", headers=admin)
         assert excel.status_code == 200
         assert excel.content.startswith(b"PK")
 
-        csv = client.get("/api/exports/responses.csv?anonymized=true", headers=admin_headers)
+        csv = client.get("/api/exports/responses.csv?anonymized=true", headers=admin)
         assert csv.status_code == 200
         assert "student@nuk.edu.tw" not in csv.content.decode("utf-8-sig")
 
-        report = client.get("/api/reports/materiality.docx", headers=admin_headers)
+        matrix = client.get("/api/exports/materiality-matrix.png", headers=admin)
+        assert matrix.status_code == 200
+        assert matrix.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+        report = client.get("/api/reports/materiality.docx", headers=admin)
         assert report.status_code == 200
         assert report.content.startswith(b"PK")
+        with zipfile.ZipFile(BytesIO(report.content)) as archive:
+            assert any(name.startswith("word/media/") and name.endswith(".png") for name in archive.namelist())
+
+        posted_report = client.post(
+            "/api/reports/materiality.docx",
+            headers=admin,
+            json={
+                "campaign_id": campaign["id"],
+                "matrix_png_base64": "data:image/png;base64," + base64.b64encode(matrix.content).decode("ascii"),
+            },
+        )
+        assert posted_report.status_code == 200
+        assert posted_report.content.startswith(b"PK")
 
 
 def test_anonymous_invitation_code_can_submit_once(tmp_path: Path):
-    settings = get_settings()
-    settings.database_url = f"sqlite:///{tmp_path / 'invite.db'}"
-    settings.seed_demo_accounts = True
-    settings.secret_key = "test-secret"
+    app = reset_app_database(tmp_path, "invite.db")
 
-    from app.database import Base, engine
-    from app.main import app
-
-    Base.metadata.drop_all(bind=engine)
     with TestClient(app) as client:
-        admin_login = client.post(
-            "/api/auth/login",
-            json={"email": "admin@nuk.edu.tw", "password": "admin123"},
-        )
-        assert admin_login.status_code == 200
-        admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
-        campaign = client.get("/api/campaigns/active", headers=admin_headers).json()
+        admin = admin_headers(client)
+        campaign = client.get("/api/campaigns/active", headers=admin).json()
 
         invite_login = client.post(
             "/api/auth/invite",
@@ -141,36 +159,24 @@ def test_anonymous_invitation_code_can_submit_once(tmp_path: Path):
 
 
 def test_topic_and_campaign_admin_management(tmp_path: Path):
-    settings = get_settings()
-    settings.database_url = f"sqlite:///{tmp_path / 'admin.db'}"
-    settings.seed_demo_accounts = True
-    settings.secret_key = "test-secret"
+    app = reset_app_database(tmp_path, "admin.db")
 
-    from app.database import Base, engine
-    from app.main import app
-
-    Base.metadata.drop_all(bind=engine)
     with TestClient(app) as client:
-        admin_login = client.post(
-            "/api/auth/login",
-            json={"email": "admin@nuk.edu.tw", "password": "admin123"},
-        )
-        assert admin_login.status_code == 200
-        admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+        admin = admin_headers(client)
 
         created_topic = client.post(
             "/api/admin/topics",
-            headers=admin_headers,
+            headers=admin,
             json={
                 "code": "G99",
                 "category": "G",
                 "name_zh": "測試治理議題",
                 "name_en": "Test Governance Topic",
-                "description": "管理端新增測試",
+                "description": "測試新增議題",
                 "gri_mapping": "GRI 3",
                 "sdgs_mapping": "SDG 16",
-                "responsible_unit": "永續辦公室",
-                "management_approach": "年度審查",
+                "responsible_unit": "永續發展辦公室",
+                "management_approach": "年度檢討",
                 "kpi": "完成率",
                 "sort_order": 99,
             },
@@ -179,7 +185,7 @@ def test_topic_and_campaign_admin_management(tmp_path: Path):
         topic_id = created_topic.json()["id"]
         patched_topic = client.patch(
             f"/api/admin/topics/{topic_id}",
-            headers=admin_headers,
+            headers=admin,
             json={"is_active": False},
         )
         assert patched_topic.status_code == 200
@@ -187,9 +193,9 @@ def test_topic_and_campaign_admin_management(tmp_path: Path):
 
         created_campaign = client.post(
             "/api/admin/campaigns",
-            headers=admin_headers,
+            headers=admin,
             json={
-                "title": "2027 測試問卷",
+                "title": "2027 測試問卷活動",
                 "year": 2027,
                 "status": "draft",
                 "is_open": False,
@@ -201,21 +207,21 @@ def test_topic_and_campaign_admin_management(tmp_path: Path):
         campaign_id = created_campaign.json()["id"]
         opened_campaign = client.patch(
             f"/api/admin/campaigns/{campaign_id}",
-            headers=admin_headers,
+            headers=admin,
             json={"status": "active", "is_open": True},
         )
         assert opened_campaign.status_code == 200
         assert opened_campaign.json()["is_open"] is True
 
-        groups = client.get("/api/admin/stakeholder-groups", headers=admin_headers).json()
+        groups = client.get("/api/admin/stakeholder-groups", headers=admin).json()
         student_group = next(group for group in groups if group["name"] == "學生")
         invitations = client.post(
             f"/api/admin/campaigns/{campaign_id}/invitations",
-            headers=admin_headers,
+            headers=admin,
             json={"stakeholder_group_id": student_group["id"], "count": 3, "label_prefix": "STU"},
         )
         assert invitations.status_code == 200
         assert len(invitations.json()) == 3
-        listed = client.get(f"/api/admin/campaigns/{campaign_id}/invitations", headers=admin_headers)
+        listed = client.get(f"/api/admin/campaigns/{campaign_id}/invitations", headers=admin)
         assert listed.status_code == 200
         assert len(listed.json()) == 3
