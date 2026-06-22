@@ -103,6 +103,10 @@ button { cursor: pointer; }
 .page-header h1, .survey-header h1 { font-size: 30px; letter-spacing: -.035em; margin: 7px 0 5px; }
 .page-header p, .survey-header p { color: var(--muted); font-size: 12px; margin: 0; }
 .header-actions { display: flex; gap: 9px; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 0 0 16px; padding: 15px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+.filter-bar label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.filter-bar select, .admin-card input, .admin-card textarea { min-width: 210px; border: 1px solid #dfe6e1; border-radius: 8px; padding: 9px 10px; color: var(--ink); background: white; outline: none; }
+.filter-bar select:focus, .admin-card input:focus, .admin-card textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,120,84,.08); }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 16px; }
 .metric-card { min-height: 126px; padding: 20px; border: 1px solid var(--line); background: white; border-radius: 12px; box-shadow: 0 3px 10px rgba(30,60,46,.025); display: grid; grid-template-columns: auto 1fr; gap: 13px; }
 .metric-icon { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 10px; }
@@ -160,9 +164,9 @@ button { cursor: pointer; }
 .topic-table td:first-child { display: grid; }
 .topic-table td:first-child small { color: #9aa49e; font-size: 8px; margin-top: 2px; }
 .category, .quadrant { display: inline-block; border-radius: 5px; padding: 4px 7px; font-size: 9px; }
-.category.環境 { color: #177854; background: #e9f6ef; }
-.category.社會 { color: #a66b27; background: #faf0e2; }
-.category.治理 { color: #5063a9; background: #edf0fb; }
+.category.環境, .category.E { color: #177854; background: #e9f6ef; }
+.category.社會, .category.S { color: #a66b27; background: #faf0e2; }
+.category.治理, .category.G { color: #5063a9; background: #edf0fb; }
 .quadrant.critical { color: #fff; background: #177854; }
 .quadrant.disclosure { color: #177854; background: #e5f5ed; }
 .quadrant.risk { color: #a46d24; background: #f8edda; }
@@ -212,6 +216,23 @@ button { cursor: pointer; }
 .survey-success > span svg { width: 35px; height: 35px; }
 .survey-success h1 { margin: 22px 0 7px; }
 .survey-success p { color: var(--muted); margin: 0 0 25px; }
+.segment-panel { margin-bottom: 16px; }
+.segment-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 16px; }
+.segment-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #fafcfb; color: var(--ink); text-align: left; display: grid; gap: 4px; }
+.segment-card:hover, .segment-card.active { border-color: var(--green); background: var(--green-soft); }
+.segment-card strong { font-size: 12px; }
+.segment-card span, .segment-card small { color: var(--muted); font-size: 10px; }
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.admin-card { padding: 18px; background: white; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 13px; }
+.admin-card-heading { display: flex; gap: 10px; align-items: center; }
+.admin-card-heading > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--green); background: var(--green-soft); }
+.admin-card-heading h2 { margin: 0 0 3px; font-size: 15px; }
+.admin-card-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+.admin-card label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.admin-card textarea { min-height: 74px; resize: vertical; }
+.admin-card .inline-check { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+.admin-card .inline-check input { min-width: auto; }
+.success-state { padding: 10px 13px; color: #176844; background: #e8f5ee; border-radius: 8px; font-size: 12px; margin-bottom: 14px; }
 
 @media (max-width: 1050px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
@@ -235,7 +256,10 @@ button { cursor: pointer; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .metric-card { padding: 15px; }
   .header-actions { width: 100%; }
+  .header-actions { flex-wrap: wrap; }
   .header-actions .button { flex: 1; }
+  .filter-bar { align-items: stretch; flex-direction: column; }
+  .filter-bar select { min-width: 100%; }
   .dimension-row { align-items: flex-start; flex-direction: column; }
   .rating { width: 100%; }
   .rating button { flex: 1; }

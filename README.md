@@ -1,90 +1,129 @@
-# 衡鑑：大學雙重重大性評估平台
+# University Materiality Platform
 
-第一版 MVP 將利害關係人問卷、雙重重大性統計、AI 文字摘要、重大性矩陣與 Word 報告整合在同一套流程。
+大學永續報告書利害關係人問卷與雙重重大性評估平台。第一階段已支援正式資料庫保存、登入/匿名邀請碼填答、防重複送出、草稿暫存、加權分析，以及 Word / Excel / CSV 匯出。第二階段已補上利害關係人權重管理、分群分析、E/S/G 篩選、矩陣 PNG 下載與管理者介面。
 
-## GitHub Pages 公開展示
+## 架構
 
-`.github/workflows/deploy-pages.yml` 會將前端建置為純靜態展示版。展示版使用虛構彙總資料，
-不連接 FastAPI、PostgreSQL 或 OpenAI，也不會永久保存問卷內容。完整資料寫入與正式 Word
-輸出仍需使用下方的本機或 Docker 部署。
+- Frontend: Next.js，GitHub Pages 可部署 demo/static frontend，也可透過 `NEXT_PUBLIC_API_URL` 連到正式後端。
+- Backend: FastAPI + SQLAlchemy。
+- Database: PostgreSQL / Supabase PostgreSQL；本機可用 SQLite 開發。
+- Export: `python-docx` 產生正式 `.docx`，`openpyxl` 產生正式 `.xlsx`。
 
-## 已完成範圍
+## 第二階段：利害關係人權重與分群分析
 
-- 利害關係人帳號登入與角色權限
-- 11 項環境、社會、治理議題庫
-- 組織影響、衝擊重大性、財務重大性三維度問卷
-- 問卷更新、填答來源與時間留存
-- 自動平均、四象限判定與 Chart.js 矩陣
-- 開放題關鍵字統計
-- OpenAI 中英文分析；未設定金鑰時使用可重現的本機摘要
-- 「2.3 利害關係人溝通、2.4 重大主題分析、2.5 雙重重大性評估」Word 匯出
-- Docker Compose + PostgreSQL 部署
+- 管理者可於前端「利害關係人」頁面維護各類別權重、說明與啟用狀態。
+- Dashboard 可依 E/S/G 類別與利害關係人類別篩選重大性矩陣。
+- Dashboard 同時呈現未加權平均、加權平均與分群樣本數。
+- 重大性矩陣支援 PNG 下載，Word/Excel 匯出會列出樣本數與權重。
+- 後端管理 API：
+  - `GET /api/admin/stakeholder-groups`
+  - `POST /api/admin/stakeholder-groups`
+  - `PATCH /api/admin/stakeholder-groups/{group_id}`
 
-## 本機啟動
+## 環境變數
 
-後端預設使用 SQLite，不需要先安裝 PostgreSQL。
+根目錄可由 `.env.example` 複製為 `.env`。
+
+```env
+DATABASE_URL=postgresql+psycopg://materiality:materiality@db:5432/materiality
+SECRET_KEY=replace-with-a-long-random-secret
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+FRONTEND_ORIGIN=https://your-org.github.io
+EXTRA_CORS_ORIGINS=
+SEED_DEMO_ACCOUNTS=false
+BOOTSTRAP_ADMIN_EMAIL=admin@example.edu
+BOOTSTRAP_ADMIN_PASSWORD=replace-with-temporary-password
+
+NEXT_PUBLIC_DEMO_MODE=false
+NEXT_PUBLIC_API_URL=https://your-api.example.com/api
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+```
+
+正式版請保持 `SEED_DEMO_ACCOUNTS=false`，並用 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 建立初始管理者。密碼會以 PBKDF2 hash 保存。
+
+## 資料庫 Schema
+
+正式 schema 位於 `backend/schema.sql`，主要資料表：
+
+- `stakeholder_groups`: 利害關係人類別、權重、啟用狀態。
+- `users`: 管理者與登入填答者。
+- `topics`: E/S/G 議題庫與 GRI、SDGs、責任單位、KPI 等欄位。
+- `survey_campaigns`: 年度問卷活動、起訖、門檻。
+- `invitation_codes`: 匿名一次性邀請碼。
+- `survey_drafts`: 問卷暫存。
+- `survey_responses`: 正式送出紀錄。
+- `topic_scores`: 雙重重大性詳細評分與自動計算分數。
+- `audit_logs`: 登入、送出、匯出等稽核紀錄。
+
+## 本機測試
+
+Backend:
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements-dev.txt
-.\.venv\Scripts\uvicorn app.main:app --reload
+cd ..
+$env:TMP="$PWD\.tmp"; $env:TEMP="$PWD\.tmp"
+.\backend\.venv\Scripts\python.exe -m pytest
 ```
 
-另開終端：
+Frontend:
 
 ```powershell
 cd frontend
 npm install
+npm run typecheck
+npm test
+npm run build
+```
+
+## 本機啟動
+
+Backend:
+
+```powershell
+cd backend
+.\.venv\Scripts\uvicorn app.main:app --reload
+```
+
+Frontend:
+
+```powershell
+cd frontend
 npm run dev
 ```
 
-開啟 `http://localhost:3000`。API 文件位於 `http://localhost:8000/docs`。
+## GitHub Pages + 正式後端部署
 
-## 展示帳號
+1. 部署 PostgreSQL 或 Supabase PostgreSQL，設定 `DATABASE_URL`。
+2. 部署 FastAPI 後端到 Render、Railway、Fly.io、Azure App Service 或自管主機。
+3. 後端設定：
+   - `FRONTEND_ORIGIN=https://<org>.github.io`
+   - `SECRET_KEY` 使用長隨機值
+   - `SEED_DEMO_ACCOUNTS=false`
+   - 首次部署才設定 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
+4. GitHub Pages frontend 設定：
+   - demo showcase: `NEXT_PUBLIC_DEMO_MODE=true`
+   - formal frontend: `NEXT_PUBLIC_DEMO_MODE=false`
+   - `NEXT_PUBLIC_API_URL=https://<backend-domain>/api`
+5. GitHub Actions 會執行 `npm install`、build、type check、test，再部署 Pages。
 
-| 身分 | 帳號 | 密碼 |
-| --- | --- | --- |
-| 管理者 | `admin@nuk.edu.tw` | `admin123` |
-| 學生填答者 | `student@nuk.edu.tw` | `survey123` |
+## Demo Mode 與 Production Mode
 
-正式部署前務必修改預設密碼與 `SECRET_KEY`。
+Demo mode:
 
-## Docker
+- 使用前端內建示範資料。
+- 可用示範帳號快速體驗。
+- 問卷不永久保存。
+- 匯出僅產生示範文字檔提示。
 
-```powershell
-Copy-Item .env.example .env
-docker compose up --build
-```
+Production mode:
 
-## AI 分析
-
-在 `.env` 設定 `OPENAI_API_KEY` 後，後端會將彙總後的議題數據送至 OpenAI API 生成中英文摘要。系統不會把姓名、電子郵件或逐筆原始填答送往模型。
-
-## 資料設計
-
-核心資料表：
-
-- `stakeholder_groups`：教師、職員、學生、校友及校外利害關係人
-- `users`：帳號、角色與利害關係人類別
-- `topics`：ESG 議題庫
-- `survey_campaigns`：評估年度、狀態與雙軸門檻
-- `survey_responses`：填答者、活動、開放題與提交時間
-- `topic_scores`：每一議題的三項 1–5 分評分
-
-重大性判定門檻預設為 3.5：
-
-| 衝擊重大性 | 財務重大性 | 判定 |
-| --- | --- | --- |
-| 高 | 高 | 重大主題 |
-| 高 | 低 | 揭露主題 |
-| 低 | 高 | 風險主題 |
-| 低 | 低 | 觀察主題 |
-
-## 下一階段建議
-
-1. 串接校務 SSO、邀請碼與匿名填答模式。
-2. 建立議題庫、問卷活動與門檻的管理介面。
-3. 增加利害關係人權重、I/R/O 評估依據與佐證附件。
-4. 新增 Excel 原始資料、PDF 與完整永續報告書章節輸出。
-5. 加入操作軌跡、版本控管與審核流程。
+- 所有問卷送出寫入 PostgreSQL。
+- 同一帳號或同一邀請碼只能送出一次。
+- 管理者可匯出正式 `.xlsx`、去識別化 `.csv` 與 `.docx`。
+- 不顯示預設帳密。
+- CORS 依 `FRONTEND_ORIGIN` 限制正式前端網域。

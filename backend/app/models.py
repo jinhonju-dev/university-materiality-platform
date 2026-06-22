@@ -6,13 +6,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class StakeholderGroup(Base):
     __tablename__ = "stakeholder_groups"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     scope: Mapped[str] = mapped_column(String(20))
-    description: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     users: Mapped[list["User"]] = relationship(back_populates="stakeholder_group")
 
@@ -40,7 +46,12 @@ class Topic(Base):
     category: Mapped[str] = mapped_column(String(20), index=True)
     name_zh: Mapped[str] = mapped_column(String(100))
     name_en: Mapped[str] = mapped_column(String(120))
-    description: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gri_mapping: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sdgs_mapping: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    responsible_unit: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    management_approach: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kpi: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -52,48 +63,107 @@ class SurveyCampaign(Base):
     title: Mapped[str] = mapped_column(String(160))
     year: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="active")
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_open: Mapped[bool] = mapped_column(Boolean, default=True)
     impact_threshold: Mapped[float] = mapped_column(Float, default=3.5)
     financial_threshold: Mapped[float] = mapped_column(Float, default=3.5)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     responses: Mapped[list["SurveyResponse"]] = relationship(back_populates="campaign")
+    invitation_codes: Mapped[list["InvitationCode"]] = relationship(back_populates="campaign")
+
+
+class InvitationCode(Base):
+    __tablename__ = "invitation_codes"
+    __table_args__ = (UniqueConstraint("campaign_id", "code", name="uq_campaign_invitation_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
+    code: Mapped[str] = mapped_column(String(80), index=True)
+    stakeholder_group_id: Mapped[int] = mapped_column(ForeignKey("stakeholder_groups.id"))
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    campaign: Mapped[SurveyCampaign] = relationship(back_populates="invitation_codes")
+    stakeholder_group: Mapped[StakeholderGroup] = relationship()
+    response: Mapped["SurveyResponse | None"] = relationship(back_populates="invitation_code")
+
+
+class SurveyDraft(Base):
+    __tablename__ = "survey_drafts"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "respondent_id", name="uq_draft_campaign_respondent"),
+        UniqueConstraint("campaign_id", "invitation_code_id", name="uq_draft_campaign_invitation"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
+    respondent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    invitation_code_id: Mapped[int | None] = mapped_column(ForeignKey("invitation_codes.id"), nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class SurveyResponse(Base):
     __tablename__ = "survey_responses"
     __table_args__ = (
         UniqueConstraint("campaign_id", "respondent_id", name="uq_campaign_respondent"),
+        UniqueConstraint("campaign_id", "invitation_code_id", name="uq_campaign_invitation"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     campaign_id: Mapped[int] = mapped_column(ForeignKey("survey_campaigns.id"))
-    respondent_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    open_answer: Mapped[str | None] = mapped_column(Text)
-    submitted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
+    respondent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    invitation_code_id: Mapped[int | None] = mapped_column(ForeignKey("invitation_codes.id"), nullable=True)
+    stakeholder_group_id: Mapped[int] = mapped_column(ForeignKey("stakeholder_groups.id"))
+    open_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     campaign: Mapped[SurveyCampaign] = relationship(back_populates="responses")
-    respondent: Mapped[User] = relationship(back_populates="responses")
-    scores: Mapped[list["TopicScore"]] = relationship(
-        back_populates="response", cascade="all, delete-orphan"
-    )
+    respondent: Mapped[User | None] = relationship(back_populates="responses")
+    invitation_code: Mapped[InvitationCode | None] = relationship(back_populates="response")
+    stakeholder_group: Mapped[StakeholderGroup] = relationship()
+    scores: Mapped[list["TopicScore"]] = relationship(back_populates="response", cascade="all, delete-orphan")
 
 
 class TopicScore(Base):
     __tablename__ = "topic_scores"
-    __table_args__ = (
-        UniqueConstraint("response_id", "topic_id", name="uq_response_topic"),
-    )
+    __table_args__ = (UniqueConstraint("response_id", "topic_id", name="uq_response_topic"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     response_id: Mapped[int] = mapped_column(ForeignKey("survey_responses.id"))
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"))
     organization_score: Mapped[int] = mapped_column(Integer)
-    impact_score: Mapped[int] = mapped_column(Integer)
-    financial_score: Mapped[int] = mapped_column(Integer)
+
+    actual_or_potential: Mapped[str] = mapped_column(String(20), default="actual")
+    positive_or_negative: Mapped[str] = mapped_column(String(20), default="negative")
+    scale_score: Mapped[int] = mapped_column(Integer)
+    scope_score: Mapped[int] = mapped_column(Integer)
+    remediability_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    impact_likelihood_score: Mapped[int] = mapped_column(Integer)
+    impact_score: Mapped[float] = mapped_column(Float)
+
+    risk_or_opportunity: Mapped[str] = mapped_column(String(20), default="risk")
+    time_horizon: Mapped[str] = mapped_column(String(20), default="medium")
+    financial_magnitude_score: Mapped[int] = mapped_column(Integer)
+    operational_resilience_score: Mapped[int] = mapped_column(Integer)
+    financial_likelihood_score: Mapped[int] = mapped_column(Integer)
+    financial_score: Mapped[float] = mapped_column(Float)
 
     response: Mapped[SurveyResponse] = relationship(back_populates="scores")
     topic: Mapped[Topic] = relationship()
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    resource_type: Mapped[str] = mapped_column(String(80))
+    resource_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

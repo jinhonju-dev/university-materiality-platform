@@ -5,17 +5,39 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 
 
-def test_end_to_end(tmp_path: Path):
+def detailed_scores(topics):
+    return [
+        {
+            "topic_id": topic["id"],
+            "organization_score": 4,
+            "actual_or_potential": "actual",
+            "positive_or_negative": "negative",
+            "scale_score": 5,
+            "scope_score": 4,
+            "remediability_score": 4,
+            "impact_likelihood_score": 5,
+            "risk_or_opportunity": "risk",
+            "time_horizon": "medium",
+            "financial_magnitude_score": 4,
+            "operational_resilience_score": 4,
+            "financial_likelihood_score": 5,
+        }
+        for topic in topics
+    ]
+
+
+def test_formal_survey_submit_prevents_duplicates_and_exports(tmp_path: Path):
     settings = get_settings()
     settings.database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    settings.seed_demo_accounts = True
+    settings.secret_key = "test-secret"
 
     from app.database import Base, engine
     from app.main import app
 
     Base.metadata.drop_all(bind=engine)
     with TestClient(app) as client:
-        health = client.get("/api/health")
-        assert health.status_code == 200
+        assert client.get("/api/health").status_code == 200
 
         login = client.post(
             "/api/auth/login",
@@ -28,34 +50,91 @@ def test_end_to_end(tmp_path: Path):
         campaign = client.get("/api/campaigns/active", headers=headers).json()
         payload = {
             "campaign_id": campaign["id"],
-            "open_answer": "未來應重視能源管理、人才培育與資訊安全。",
-            "scores": [
-                {
-                    "topic_id": topic["id"],
-                    "organization_score": 4,
-                    "impact_score": 4,
-                    "financial_score": 4,
-                }
-                for topic in topics
-            ],
+            "open_answer": "希望強化能源、資安與人才培育。",
+            "scores": detailed_scores(topics),
         }
         submit = client.post("/api/surveys/submit", json=payload, headers=headers)
         assert submit.status_code == 200
-        payload["scores"][0]["impact_score"] = 5
-        resubmit = client.post("/api/surveys/submit", json=payload, headers=headers)
-        assert resubmit.status_code == 200
+        duplicate = client.post("/api/surveys/submit", json=payload, headers=headers)
+        assert duplicate.status_code == 409
 
         admin_login = client.post(
             "/api/auth/login",
             json={"email": "admin@nuk.edu.tw", "password": "admin123"},
         ).json()
         admin_headers = {"Authorization": f"Bearer {admin_login['access_token']}"}
+
         analytics = client.get("/api/analytics", headers=admin_headers)
         assert analytics.status_code == 200
-        assert analytics.json()["response_count"] == 1
-        assert analytics.json()["topics"][0]["quadrant"] == "重大主題"
-        assert analytics.json()["topics"][0]["impact"] == 5
+        body = analytics.json()
+        assert body["response_count"] == 1
+        assert body["topics"][0]["quadrant"] == "重大主題"
+        assert body["topics"][0]["impact"] == 4.5
+        assert any(group["name"] == "學生" and group["weight"] == 1.0 for group in body["stakeholders"])
+
+        groups = client.get("/api/admin/stakeholder-groups", headers=admin_headers)
+        assert groups.status_code == 200
+        student_group = next(group for group in groups.json() if group["name"] == "學生")
+        update = client.patch(
+            f"/api/admin/stakeholder-groups/{student_group['id']}",
+            headers=admin_headers,
+            json={"weight": 1.5, "description": "Student respondents"},
+        )
+        assert update.status_code == 200
+        assert update.json()["weight"] == 1.5
+
+        excel = client.get("/api/exports/responses.xlsx", headers=admin_headers)
+        assert excel.status_code == 200
+        assert excel.content.startswith(b"PK")
+
+        csv = client.get("/api/exports/responses.csv?anonymized=true", headers=admin_headers)
+        assert csv.status_code == 200
+        assert "student@nuk.edu.tw" not in csv.content.decode("utf-8-sig")
 
         report = client.get("/api/reports/materiality.docx", headers=admin_headers)
         assert report.status_code == 200
         assert report.content.startswith(b"PK")
+
+
+def test_anonymous_invitation_code_can_submit_once(tmp_path: Path):
+    settings = get_settings()
+    settings.database_url = f"sqlite:///{tmp_path / 'invite.db'}"
+    settings.seed_demo_accounts = True
+    settings.secret_key = "test-secret"
+
+    from app.database import Base, engine
+    from app.main import app
+
+    Base.metadata.drop_all(bind=engine)
+    with TestClient(app) as client:
+        admin_login = client.post(
+            "/api/auth/login",
+            json={"email": "admin@nuk.edu.tw", "password": "admin123"},
+        )
+        assert admin_login.status_code == 200
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+        campaign = client.get("/api/campaigns/active", headers=admin_headers).json()
+
+        invite_login = client.post(
+            "/api/auth/invite",
+            json={"campaign_id": campaign["id"], "invitation_code": "DEMO-STUDENT"},
+        )
+        assert invite_login.status_code == 200
+        invite_headers = {"Authorization": f"Bearer {invite_login.json()['access_token']}"}
+        topics = client.get("/api/topics", headers=invite_headers).json()
+        submit = client.post(
+            "/api/surveys/submit",
+            headers=invite_headers,
+            json={
+                "campaign_id": campaign["id"],
+                "open_answer": "匿名填答測試",
+                "scores": detailed_scores(topics),
+            },
+        )
+        assert submit.status_code == 200
+
+        second_login = client.post(
+            "/api/auth/invite",
+            json={"campaign_id": campaign["id"], "invitation_code": "DEMO-STUDENT"},
+        )
+        assert second_login.status_code == 409

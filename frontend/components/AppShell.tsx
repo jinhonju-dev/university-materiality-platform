@@ -14,9 +14,10 @@ import {
   X,
 } from "lucide-react";
 
-import type { User } from "@/lib/types";
 import { DEMO_MODE } from "@/lib/demo";
+import type { User } from "@/lib/types";
 import { Dashboard } from "./Dashboard";
+import { StakeholderAdmin } from "./StakeholderAdmin";
 import { Survey } from "./Survey";
 
 export function AppShell({
@@ -36,11 +37,11 @@ export function AppShell({
   }, [user]);
 
   const nav = user.role === "admin" ? [
-    { id: "dashboard", label: "分析總覽", icon: BarChart3 },
+    { id: "dashboard", label: "分析儀表板", icon: BarChart3 },
     { id: "survey", label: "問卷預覽", icon: ClipboardList },
-    { id: "stakeholders", label: "利害關係人", icon: Users, disabled: true },
+    { id: "stakeholders", label: "利害關係人", icon: Users },
     { id: "topics", label: "議題庫", icon: Database, disabled: true },
-    { id: "reports", label: "報告管理", icon: FileOutput, disabled: true },
+    { id: "reports", label: "報告管理", icon: FileOutput },
   ] : [
     { id: "survey", label: "重大性問卷", icon: ClipboardList },
   ];
@@ -52,24 +53,24 @@ export function AppShell({
         <button className="close-sidebar" onClick={() => setMobileOpen(false)}><X /></button>
         <div className="brand">
           <span className="brand-mark"><Leaf size={20} /></span>
-          <span>衡鑑</span>
+          <span>大學永續</span>
           <small>Materiality OS</small>
         </div>
         <nav>
-          <span className="nav-label">工作區</span>
+          <span className="nav-label">功能</span>
           {nav.map((item) => (
             <button
               key={item.id}
               className={view === item.id ? "active" : ""}
               disabled={item.disabled}
-              title={item.disabled ? "將於下一階段開放" : undefined}
+              title={item.disabled ? "第二階段補齊管理 CRUD" : undefined}
               onClick={() => {
                 setView(item.id);
                 setMobileOpen(false);
               }}
             >
               <item.icon size={18} /> {item.label}
-              {item.disabled && <small>soon</small>}
+              {item.disabled && <small>phase 2</small>}
             </button>
           ))}
         </nav>
@@ -77,14 +78,17 @@ export function AppShell({
           <button disabled><Settings size={18} /> 系統設定</button>
           <div className="profile">
             <span>{user.name.slice(0, 1)}</span>
-            <div><strong>{user.name}</strong><small>{user.stakeholder_group.name}・{user.role === "admin" ? "管理者" : "填答者"}</small></div>
+            <div><strong>{user.name}</strong><small>{user.stakeholder_group.name} / {user.role === "admin" ? "管理者" : "填答者"}</small></div>
             <button aria-label="登出" onClick={onLogout}><LogOut size={17} /></button>
           </div>
         </div>
       </aside>
       <section className="main-area">
-        {DEMO_MODE && <div className="public-demo-bar">公開展示版・資料皆為虛構範例</div>}
-        {view === "dashboard" ? <Dashboard token={token} /> : <Survey token={token} />}
+        {DEMO_MODE && <div className="public-demo-bar">Demo mode：使用示範資料，不會永久保存問卷或匯出正式資料。</div>}
+        {view === "survey" && <Survey token={token} />}
+        {view === "dashboard" && <Dashboard token={token} />}
+        {view === "stakeholders" && <StakeholderAdmin token={token} />}
+        {view !== "survey" && view !== "dashboard" && view !== "stakeholders" && <Dashboard token={token} />}
       </section>
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
     </main>
