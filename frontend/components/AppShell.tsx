@@ -28,7 +28,6 @@ type NavItem = {
   id: string;
   label: string;
   icon: typeof BarChart3;
-  disabled?: boolean;
 };
 
 export function AppShell({
@@ -49,7 +48,7 @@ export function AppShell({
 
   const canEdit = user.role === "super_admin" || user.role === "admin";
   const nav: NavItem[] = user.role !== "respondent" ? [
-    { id: "dashboard", label: "分析儀表板", icon: BarChart3 },
+    { id: "dashboard", label: "儀表板", icon: BarChart3 },
     ...(canEdit ? [
       { id: "stakeholders", label: "利害關係人", icon: Users },
       { id: "topics", label: "議題庫", icon: Database },
@@ -57,7 +56,7 @@ export function AppShell({
     ] : []),
     { id: "reports", label: "報告管理", icon: FileOutput },
   ] : [
-    { id: "survey", label: "重大性問卷", icon: ClipboardList },
+    { id: "survey", label: "問卷填答", icon: ClipboardList },
   ];
 
   return (
@@ -67,7 +66,7 @@ export function AppShell({
         <button className="close-sidebar" onClick={() => setMobileOpen(false)}><X /></button>
         <div className="brand">
           <span className="brand-mark"><Leaf size={20} /></span>
-          <span>永續重大性</span>
+          <span>永續重大性平台</span>
           <small>Materiality OS</small>
         </div>
         <nav>
@@ -76,8 +75,6 @@ export function AppShell({
             <button
               key={item.id}
               className={view === item.id ? "active" : ""}
-              disabled={item.disabled}
-              title={item.disabled ? "尚未開放" : undefined}
               onClick={() => {
                 setView(item.id);
                 setMobileOpen(false);
@@ -91,13 +88,13 @@ export function AppShell({
           <button disabled><Settings size={18} /> 系統設定</button>
           <div className="profile">
             <span>{user.name.slice(0, 1)}</span>
-            <div><strong>{user.name}</strong><small>{user.stakeholder_group.name} / {user.role === "admin" ? "管理者" : "填答者"}</small></div>
+            <div><strong>{user.name}</strong><small>{user.stakeholder_group.name} / {user.role}</small></div>
             <button aria-label="登出" onClick={onLogout}><LogOut size={17} /></button>
           </div>
         </div>
       </aside>
       <section className="main-area">
-        {DEMO_MODE && <div className="public-demo-bar">Demo mode：此版本使用展示資料，不會永久儲存正式問卷。</div>}
+        {DEMO_MODE && <div className="public-demo-bar">展示模式：使用前端示範資料，不會永久保存填答或管理資料。</div>}
         {view === "survey" && <Survey token={token} />}
         {view === "dashboard" && <Dashboard token={token} />}
         {view === "stakeholders" && <StakeholderAdmin token={token} />}

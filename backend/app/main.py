@@ -1,12 +1,12 @@
-import base64
+﻿import base64
 import binascii
 import json
 import secrets
 import string
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
@@ -16,7 +16,7 @@ from .ai_analysis import create_ai_analysis_version, latest_ai_analysis, list_ai
 from .analytics import build_analytics
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
-from .export import create_csv_export, create_excel_export
+from .export import create_anonymized_export, create_concern_export, create_csv_export, create_excel_export, create_expert_export
 from .matrix_image import create_matrix_png
 from .models import (
     AuditLog,
@@ -25,6 +25,7 @@ from .models import (
     ExpertAssessmentResponse,
     ExpertAssessmentScore,
     InvitationCode,
+    MaterialTopicOverride,
     StakeholderGroup,
     SurveyCampaign,
     SurveyDraft,
@@ -43,6 +44,7 @@ from .schemas import (
     AnalyticsOut,
     AnonymousSurveyDraftIn,
     AnonymousSurveySubmit,
+    AuditLogPageOut,
     AuditLogOut,
     CampaignAdminOut,
     CampaignCreate,
@@ -55,6 +57,7 @@ from .schemas import (
     InviteLoginRequest,
     LoginRequest,
     MaterialityReportRequest,
+    MaterialTopicOverrideIn,
     PublicSurveyConfig,
     PublicSurveySubmitOut,
     StakeholderGroupAdminOut,
@@ -71,12 +74,16 @@ from .schemas import (
     UserOut,
     UserAdminOut,
 )
-from .security import create_access_token, get_current_principal, get_current_user, require_admin, require_report_viewer, require_super_admin, verify_password, hash_password
+from .security import create_access_token, get_current_principal, get_current_user, hash_invitation_code, hash_password, require_admin, require_report_viewer, require_super_admin, verify_password
 from .seed import seed_database
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    production_mode = settings.app_mode.lower() == "production" or getattr(settings, "app_env", "").lower() == "production"
+    insecure_secrets = {"", "change-this-secret-in-production", "local-development-secret"}
+    if production_mode and settings.secret_key.strip() in insecure_secrets:
+        raise RuntimeError("SECRET_KEY must be changed before running in production mode.")
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_database(db)
@@ -93,6 +100,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+REPORT_RATE_LIMIT: dict[str, list[datetime]] = {}
+REPORT_RATE_LIMIT_MAX = 10
+REPORT_RATE_LIMIT_WINDOW_SECONDS = 60
+
 
 def log_event(db: Session, action: str, resource_type: str, resource_id: str | None = None, user: User | None = None, detail: str | None = None) -> None:
     db.add(
@@ -108,11 +119,13 @@ def log_event(db: Session, action: str, resource_type: str, resource_id: str | N
 
 def is_campaign_open(campaign: SurveyCampaign) -> bool:
     now = datetime.now(timezone.utc)
-    if campaign.status != "active" or not campaign.is_open:
+    if campaign.status != "active" or not campaign.is_open or not campaign.is_active:
         return False
-    if campaign.starts_at and campaign.starts_at > now:
+    starts_at = campaign.start_date or campaign.starts_at
+    ends_at = campaign.end_date or campaign.ends_at
+    if starts_at and starts_at > now:
         return False
-    if campaign.ends_at and campaign.ends_at < now:
+    if ends_at and ends_at < now:
         return False
     return True
 
@@ -123,15 +136,22 @@ def score_value(values: list[int | None]) -> float:
 
 
 def resolve_invitation(db: Session, campaign_id: int, code: str) -> InvitationCode:
+    normalized = code.strip().upper()
     invitation = db.scalar(
         select(InvitationCode).where(
             InvitationCode.campaign_id == campaign_id,
-            InvitationCode.code == code.strip(),
+            InvitationCode.code_hash == hash_invitation_code(normalized),
             InvitationCode.is_active.is_(True),
+            InvitationCode.revoked_at.is_(None),
         )
     )
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation code is invalid.")
+    now = datetime.now(timezone.utc)
+    if invitation.expires_at and invitation.expires_at < now:
+        raise HTTPException(status_code=410, detail="Invitation code has expired.")
+    if invitation.used_count >= invitation.max_uses:
+        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
     return invitation
 
 
@@ -147,7 +167,32 @@ def average_known(values: list[int | None]) -> float:
     return round(sum(known) / len(known), 2) if known else 0.0
 
 
-def invitation_code_value(length: int = 10) -> str:
+def expert_impact_materiality(score) -> float:
+    positive_likelihood = score.positive_likelihood_score if score.positive_likelihood_score is not None else score.impact_likelihood_score
+    positive_magnitude = score.positive_impact_magnitude_score if score.positive_impact_magnitude_score is not None else score.positive_impact_score
+    negative_likelihood = score.negative_likelihood_score if score.negative_likelihood_score is not None else score.impact_likelihood_score
+    negative_magnitude = score.negative_impact_magnitude_score if score.negative_impact_magnitude_score is not None else score.negative_impact_score
+    positive = (positive_likelihood * positive_magnitude / 5) if positive_likelihood is not None and positive_magnitude is not None else 0
+    negative = (negative_likelihood * negative_magnitude / 5) if negative_likelihood is not None and negative_magnitude is not None else 0
+    return round(max(positive, negative), 2)
+
+
+def expert_financial_materiality(score) -> float:
+    magnitude = average_known(
+        [
+            score.enrollment_revenue_score if score.enrollment_revenue_score is not None else score.admissions_revenue_score,
+            score.reputation_score,
+            score.operating_cost_score,
+            score.funding_score,
+            score.legal_responsibility_score if score.legal_responsibility_score is not None else score.legal_liability_score,
+        ]
+    )
+    if score.financial_likelihood_score is None or magnitude == 0:
+        return 0.0
+    return round(score.financial_likelihood_score * magnitude / 5, 2)
+
+
+def invitation_code_value(length: int = 15) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return "-".join(
         "".join(secrets.choice(alphabet) for _ in range(5))
@@ -156,14 +201,14 @@ def invitation_code_value(length: int = 10) -> str:
 
 
 def campaign_admin_out(db: Session, campaign: SurveyCampaign) -> CampaignAdminOut:
-    response_count = db.scalar(select(func.count(SurveyResponse.id)).where(SurveyResponse.campaign_id == campaign.id)) or 0
+    if campaign.survey_type == "concern":
+        response_count = db.scalar(select(func.count(ConcernSurveyResponse.id)).where(ConcernSurveyResponse.campaign_id == campaign.id)) or 0
+    elif campaign.survey_type == "expert_materiality":
+        response_count = db.scalar(select(func.count(ExpertAssessmentResponse.id)).where(ExpertAssessmentResponse.campaign_id == campaign.id)) or 0
+    else:
+        response_count = db.scalar(select(func.count(SurveyResponse.id)).where(SurveyResponse.campaign_id == campaign.id)) or 0
     invitation_count = db.scalar(select(func.count(InvitationCode.id)).where(InvitationCode.campaign_id == campaign.id)) or 0
-    used_count = db.scalar(
-        select(func.count(InvitationCode.id)).where(
-            InvitationCode.campaign_id == campaign.id,
-            InvitationCode.used_at.is_not(None),
-        )
-    ) or 0
+    used_count = db.scalar(select(func.coalesce(func.sum(InvitationCode.used_count), 0)).where(InvitationCode.campaign_id == campaign.id)) or 0
     return CampaignAdminOut.model_validate(campaign).model_copy(
         update={
             "response_count": response_count,
@@ -173,17 +218,23 @@ def campaign_admin_out(db: Session, campaign: SurveyCampaign) -> CampaignAdminOu
     )
 
 
-def invitation_out(invitation: InvitationCode) -> InvitationCodeOut:
+def invitation_out(invitation: InvitationCode, reveal_code: str | None = None) -> InvitationCodeOut:
     return InvitationCodeOut(
         id=invitation.id,
         campaign_id=invitation.campaign_id,
-        code=invitation.code,
+        code=reveal_code,
+        code_prefix=invitation.code_prefix,
         stakeholder_group_id=invitation.stakeholder_group_id,
         stakeholder_group_name=invitation.stakeholder_group.name,
         label=invitation.label,
+        evaluator_role=invitation.evaluator_role,
         survey_type=invitation.survey_type,
+        expires_at=invitation.expires_at,
+        max_uses=invitation.max_uses,
+        used_count=invitation.used_count,
         is_active=invitation.is_active,
         used_at=invitation.used_at,
+        revoked_at=invitation.revoked_at,
         created_at=invitation.created_at,
     )
 
@@ -213,20 +264,25 @@ def score_models(response_id: int, scores) -> list[TopicScore]:
                 organization_score=score.organization_score,
                 actual_or_potential=score.actual_or_potential,
                 positive_or_negative=score.positive_or_negative,
-                scale_score=score.scale_score or int(round(impact_score)),
-                scope_score=score.scope_score or int(round(impact_score)),
+                scale_score=score.scale_score,
+                scope_score=score.scope_score,
                 remediability_score=score.remediability_score if score.positive_or_negative == "negative" else None,
-                impact_likelihood_score=score.impact_likelihood_score or int(round(impact_score)),
+                impact_likelihood_score=score.impact_likelihood_score,
                 impact_score=impact_score,
                 risk_or_opportunity=score.risk_or_opportunity,
                 time_horizon=score.time_horizon,
-                financial_magnitude_score=score.financial_magnitude_score or int(round(financial_score)),
-                operational_resilience_score=score.operational_resilience_score or int(round(financial_score)),
-                financial_likelihood_score=score.financial_likelihood_score or int(round(financial_score)),
+                financial_magnitude_score=score.financial_magnitude_score,
+                operational_resilience_score=score.operational_resilience_score,
+                financial_likelihood_score=score.financial_likelihood_score,
                 financial_score=financial_score,
             )
         )
     return models
+
+
+@app.get("/health")
+def render_health():
+    return {"status": "ok"}
 
 
 @app.get("/api/health")
@@ -239,23 +295,68 @@ def system_mode():
     return {"mode": settings.app_mode, "demo": settings.app_mode == "demo"}
 
 
+def current_campaign_by_type(db: Session, survey_type: str) -> SurveyCampaign | None:
+    return db.scalar(
+        select(SurveyCampaign)
+        .where(
+            SurveyCampaign.survey_type == survey_type,
+            SurveyCampaign.status == "active",
+            SurveyCampaign.is_active.is_(True),
+        )
+        .order_by(SurveyCampaign.year.desc(), SurveyCampaign.id.desc())
+    )
+
+
+def public_survey_payload(db: Session, campaign: SurveyCampaign) -> dict:
+    topics = db.scalars(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.sort_order, Topic.id)).all()
+    groups = db.scalars(
+        select(StakeholderGroup).where(StakeholderGroup.is_active.is_(True)).order_by(StakeholderGroup.sort_order, StakeholderGroup.name)
+    ).all()
+    return {"app_mode": settings.app_mode, "campaign": campaign, "topics": topics, "stakeholder_groups": groups}
+
+
 @app.get("/api/public/survey-config", response_model=PublicSurveyConfig)
 def public_survey_config(db: Session = Depends(get_db)):
-    campaign = db.scalar(
-        select(SurveyCampaign).where(SurveyCampaign.status == "active").order_by(SurveyCampaign.year.desc())
-    )
+    campaign = current_campaign_by_type(db, "concern")
     if not campaign:
         raise HTTPException(status_code=404, detail="No active survey campaign.")
-    topics = db.scalars(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.sort_order)).all()
-    groups = db.scalars(select(StakeholderGroup).where(StakeholderGroup.is_active.is_(True)).order_by(StakeholderGroup.scope, StakeholderGroup.name)).all()
-    return {"app_mode": settings.app_mode, "campaign": campaign, "topics": topics, "stakeholder_groups": groups}
+    return public_survey_payload(db, campaign)
+
+
+@app.get("/api/surveys/concern/current", response_model=PublicSurveyConfig)
+def current_concern_survey(db: Session = Depends(get_db)):
+    campaign = current_campaign_by_type(db, "concern")
+    if not campaign or not is_campaign_open(campaign):
+        raise HTTPException(status_code=404, detail="No open concern survey.")
+    return public_survey_payload(db, campaign)
+
+
+@app.get("/api/surveys/expert/current", response_model=PublicSurveyConfig)
+def current_expert_survey(invitation_code: str | None = None, db: Session = Depends(get_db)):
+    campaign = current_campaign_by_type(db, "expert_materiality")
+    if not campaign or not is_campaign_open(campaign):
+        raise HTTPException(status_code=404, detail="No open expert materiality assessment.")
+    if invitation_code:
+        resolve_invitation(db, campaign.id, invitation_code)
+    return public_survey_payload(db, campaign)
 
 
 @app.post("/api/auth/login", response_model=TokenOut)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload.email, User.is_active.is_(True)))
+    now = datetime.now(timezone.utc)
+    if user and user.locked_until and user.locked_until > now:
+        raise HTTPException(status_code=423, detail="Account is temporarily locked.")
     if not user or not verify_password(payload.password, user.password_hash):
+        if user:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            if user.failed_login_count >= 5:
+                user.locked_until = now + timedelta(minutes=15)
+            db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password.")
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.last_login_at = now
     log_event(db, "login", "user", str(user.id), user=user)
     db.commit()
     return {"access_token": create_access_token(user_id=user.id), "user": user}
@@ -267,12 +368,10 @@ def invite_login(payload: InviteLoginRequest, db: Session = Depends(get_db)):
     if not campaign or not is_campaign_open(campaign):
         raise HTTPException(status_code=400, detail="Survey campaign is not open.")
     invitation = resolve_invitation(db, payload.campaign_id, payload.invitation_code)
-    if invitation.used_at:
-        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
     pseudo_user = UserOut(
         id=-invitation.id,
         email="anonymous@example.org",
-        name=f"匿名填答者-{invitation.stakeholder_group.name}",
+        name=f"受邀填答者（{invitation.stakeholder_group.name}）",
         role="respondent",
         stakeholder_group=invitation.stakeholder_group,
     )
@@ -280,6 +379,11 @@ def invite_login(payload: InviteLoginRequest, db: Session = Depends(get_db)):
         "access_token": create_access_token(invitation_code_id=invitation.id),
         "user": pseudo_user,
     }
+
+
+@app.post("/api/auth/invitation-login", response_model=TokenOut)
+def invitation_login(payload: InviteLoginRequest, db: Session = Depends(get_db)):
+    return invite_login(payload, db)
 
 
 @app.get("/api/auth/me", response_model=UserOut)
@@ -312,6 +416,8 @@ def create_admin_user(
         password_hash=hash_password(payload.password),
         role=payload.role,
         stakeholder_group_id=group.id,
+        force_password_change=True,
+        created_by_user_id=user.id,
     )
     db.add(created)
     db.flush()
@@ -361,12 +467,28 @@ def reset_admin_password(
     return target
 
 
-@app.get("/api/admin/audit-logs", response_model=list[AuditLogOut])
+@app.get("/api/admin/audit-logs", response_model=AuditLogPageOut)
 def list_audit_logs(
+    page: int = 1,
+    page_size: int = 50,
+    action: str | None = None,
     _: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    return db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(500)).all()
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 200)
+    query = select(AuditLog)
+    count_query = select(func.count(AuditLog.id))
+    if action:
+        query = query.where(AuditLog.action == action)
+        count_query = count_query.where(AuditLog.action == action)
+    total = db.scalar(count_query) or 0
+    items = db.scalars(
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @app.get("/api/topics", response_model=list[TopicOut])
@@ -391,10 +513,13 @@ def create_topic(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    exists = db.scalar(select(Topic).where(Topic.code == payload.code))
+    topic_code = payload.topic_code or payload.code
+    exists = db.scalar(select(Topic).where((Topic.code == payload.code) | (Topic.topic_code == topic_code)))
     if exists:
         raise HTTPException(status_code=409, detail="Topic code already exists.")
-    topic = Topic(**payload.model_dump())
+    data = payload.model_dump()
+    data["topic_code"] = topic_code
+    topic = Topic(**data)
     db.add(topic)
     db.flush()
     log_event(db, "create_topic", "topic", str(topic.id), user=user, detail=topic.code)
@@ -416,6 +541,11 @@ def update_topic(
     updates = payload.model_dump(exclude_unset=True)
     if "code" in updates:
         duplicate = db.scalar(select(Topic).where(Topic.code == updates["code"], Topic.id != topic_id))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Topic code already exists.")
+        updates.setdefault("topic_code", updates["code"])
+    if "topic_code" in updates:
+        duplicate = db.scalar(select(Topic).where(Topic.topic_code == updates["topic_code"], Topic.id != topic_id))
         if duplicate:
             raise HTTPException(status_code=409, detail="Topic code already exists.")
     for key, value in updates.items():
@@ -454,7 +584,14 @@ def create_campaign(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    campaign = SurveyCampaign(**payload.model_dump())
+    data = payload.model_dump()
+    data["title"] = data["title"] or data["name"]
+    data["name"] = data["name"] or data["title"]
+    data["starts_at"] = data["starts_at"] or data["start_date"]
+    data["start_date"] = data["start_date"] or data["starts_at"]
+    data["ends_at"] = data["ends_at"] or data["end_date"]
+    data["end_date"] = data["end_date"] or data["ends_at"]
+    campaign = SurveyCampaign(**data)
     db.add(campaign)
     db.flush()
     log_event(db, "create_campaign", "survey_campaign", str(campaign.id), user=user)
@@ -474,6 +611,18 @@ def update_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Survey campaign not found.")
     updates = payload.model_dump(exclude_unset=True)
+    if "title" in updates and "name" not in updates:
+        updates["name"] = updates["title"]
+    if "name" in updates and "title" not in updates:
+        updates["title"] = updates["name"]
+    if "starts_at" in updates and "start_date" not in updates:
+        updates["start_date"] = updates["starts_at"]
+    if "start_date" in updates and "starts_at" not in updates:
+        updates["starts_at"] = updates["start_date"]
+    if "ends_at" in updates and "end_date" not in updates:
+        updates["end_date"] = updates["ends_at"]
+    if "end_date" in updates and "ends_at" not in updates:
+        updates["ends_at"] = updates["end_date"]
     for key, value in updates.items():
         setattr(campaign, key, value)
     log_event(db, "update_campaign", "survey_campaign", str(campaign.id), user=user, detail=json.dumps(updates, default=str, ensure_ascii=False))
@@ -482,6 +631,7 @@ def update_campaign(
     return campaign_admin_out(db, campaign)
 
 
+@app.get("/api/admin/campaigns/{campaign_id}/invitation-codes", response_model=list[InvitationCodeOut])
 @app.get("/api/admin/campaigns/{campaign_id}/invitations", response_model=list[InvitationCodeOut])
 def list_invitations(
     campaign_id: int,
@@ -499,6 +649,7 @@ def list_invitations(
     return [invitation_out(invitation) for invitation in invitations]
 
 
+@app.post("/api/admin/campaigns/{campaign_id}/invitation-codes", response_model=list[InvitationCodeOut])
 @app.post("/api/admin/campaigns/{campaign_id}/invitations", response_model=list[InvitationCodeOut])
 def generate_invitations(
     campaign_id: int,
@@ -512,23 +663,31 @@ def generate_invitations(
     group = db.get(StakeholderGroup, payload.stakeholder_group_id)
     if not group or not group.is_active:
         raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
-    created: list[InvitationCode] = []
-    existing_codes = set(
-        db.scalars(select(InvitationCode.code).where(InvitationCode.campaign_id == campaign_id)).all()
+    created: list[tuple[InvitationCode, str]] = []
+    existing_hashes = set(
+        db.scalars(select(InvitationCode.code_hash).where(InvitationCode.campaign_id == campaign_id)).all()
     )
     for index in range(payload.count):
         code = invitation_code_value()
-        while code in existing_codes:
+        code_hash = hash_invitation_code(code)
+        while code_hash in existing_hashes:
             code = invitation_code_value()
-        existing_codes.add(code)
+            code_hash = hash_invitation_code(code)
+        existing_hashes.add(code_hash)
         invitation = InvitationCode(
             campaign_id=campaign_id,
-            code=code,
+            code_hash=code_hash,
+            code_prefix=code.split("-", 1)[0],
             stakeholder_group_id=group.id,
+            evaluator_role=payload.evaluator_role,
             label=f"{payload.label_prefix or group.name}-{index + 1}",
+            survey_type="expert_materiality" if campaign.survey_type == "expert_materiality" else campaign.survey_type,
+            expires_at=payload.expires_at,
+            max_uses=payload.max_uses,
+            created_by_user_id=user.id,
         )
         db.add(invitation)
-        created.append(invitation)
+        created.append((invitation, code))
     db.flush()
     log_event(
         db,
@@ -539,9 +698,26 @@ def generate_invitations(
         detail=f"group={group.name}; count={payload.count}",
     )
     db.commit()
-    for invitation in created:
+    for invitation, _ in created:
         db.refresh(invitation)
-    return [invitation_out(invitation) for invitation in created]
+    return [invitation_out(invitation, reveal_code=code) for invitation, code in created]
+
+
+@app.patch("/api/admin/invitation-codes/{invitation_id}/revoke", response_model=InvitationCodeOut)
+def revoke_invitation(
+    invitation_id: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    invitation = db.get(InvitationCode, invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation code not found.")
+    invitation.is_active = False
+    invitation.revoked_at = datetime.now(timezone.utc)
+    log_event(db, "revoke_invitation_code", "invitation_code", str(invitation.id), user=user)
+    db.commit()
+    db.refresh(invitation)
+    return invitation_out(invitation)
 
 
 @app.get("/api/admin/stakeholder-groups", response_model=list[StakeholderGroupAdminOut])
@@ -567,10 +743,13 @@ def create_stakeholder_group(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    exists = db.scalar(select(StakeholderGroup).where(StakeholderGroup.name == payload.name))
+    code = payload.code or payload.name.lower().replace(" ", "_")
+    exists = db.scalar(select(StakeholderGroup).where((StakeholderGroup.name == payload.name) | (StakeholderGroup.code == code)))
     if exists:
         raise HTTPException(status_code=409, detail="Stakeholder group already exists.")
-    group = StakeholderGroup(**payload.model_dump())
+    data = payload.model_dump()
+    data["code"] = code
+    group = StakeholderGroup(**data)
     db.add(group)
     db.flush()
     log_event(db, "create_stakeholder_group", "stakeholder_group", str(group.id), user=user)
@@ -596,6 +775,12 @@ def update_stakeholder_group(
         )
         if duplicate:
             raise HTTPException(status_code=409, detail="Stakeholder group name already exists.")
+    if "code" in updates:
+        duplicate = db.scalar(
+            select(StakeholderGroup).where(StakeholderGroup.code == updates["code"], StakeholderGroup.id != group_id)
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Stakeholder group code already exists.")
     for key, value in updates.items():
         setattr(group, key, value)
     count = db.scalar(select(func.count(SurveyResponse.id)).where(SurveyResponse.stakeholder_group_id == group.id)) or 0
@@ -651,8 +836,6 @@ def save_draft(
 @app.put("/api/surveys/draft/anonymous")
 def save_anonymous_draft(payload: AnonymousSurveyDraftIn, db: Session = Depends(get_db)):
     invitation = resolve_invitation(db, payload.campaign_id, payload.invitation_code)
-    if invitation.used_at:
-        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
     draft = db.scalar(
         select(SurveyDraft).where(
             SurveyDraft.campaign_id == payload.campaign_id,
@@ -665,6 +848,11 @@ def save_anonymous_draft(payload: AnonymousSurveyDraftIn, db: Session = Depends(
     draft.payload_json = json.dumps(payload.payload, ensure_ascii=False)
     db.commit()
     return {"saved": True}
+
+
+@app.post("/api/surveys/expert/draft")
+def save_expert_draft(payload: AnonymousSurveyDraftIn, db: Session = Depends(get_db)):
+    return save_anonymous_draft(payload, db)
 
 
 @app.post("/api/surveys/submit", response_model=SurveyStatusOut)
@@ -695,7 +883,7 @@ def submit_survey(
     else:
         if principal.campaign_id != campaign.id:
             raise HTTPException(status_code=403, detail="Invitation code is not valid for this campaign.")
-        if principal.used_at:
+        if principal.used_count >= principal.max_uses:
             raise HTTPException(status_code=409, detail="Invitation code has already been used.")
         response = SurveyResponse(
             campaign_id=campaign.id,
@@ -703,6 +891,7 @@ def submit_survey(
             stakeholder_group_id=principal.stakeholder_group_id,
             open_answer=payload.open_answer,
         )
+        principal.used_count += 1
         principal.used_at = datetime.now(timezone.utc)
     db.add(response)
     db.flush()
@@ -724,8 +913,6 @@ def submit_anonymous_survey(payload: AnonymousSurveySubmit, db: Session = Depend
     if not campaign or not is_campaign_open(campaign):
         raise HTTPException(status_code=400, detail="Survey campaign is not open.")
     invitation = resolve_invitation(db, payload.campaign_id, payload.invitation_code)
-    if invitation.used_at:
-        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
     validate_topic_coverage(db, payload.scores)
     response = SurveyResponse(
         campaign_id=campaign.id,
@@ -736,6 +923,7 @@ def submit_anonymous_survey(payload: AnonymousSurveySubmit, db: Session = Depend
     db.add(response)
     db.flush()
     response.scores = score_models(response.id, payload.scores)
+    invitation.used_count += 1
     invitation.used_at = datetime.now(timezone.utc)
     db.execute(delete(SurveyDraft).where(SurveyDraft.campaign_id == campaign.id, SurveyDraft.invitation_code_id == invitation.id))
     log_event(db, "anonymous_survey_submit", "survey_campaign", str(campaign.id), detail=f"invitation_id={invitation.id}")
@@ -744,11 +932,14 @@ def submit_anonymous_survey(payload: AnonymousSurveySubmit, db: Session = Depend
     return {"campaign_id": campaign.id, "submitted": True, "submitted_at": response.submitted_at}
 
 
+@app.post("/api/surveys/concern/submit", response_model=PublicSurveySubmitOut)
 @app.post("/api/surveys/concern", response_model=PublicSurveySubmitOut)
 def submit_concern_survey(payload: ConcernSurveySubmit, db: Session = Depends(get_db)):
     campaign = db.get(SurveyCampaign, payload.campaign_id)
     if not campaign or not is_campaign_open(campaign):
         raise HTTPException(status_code=400, detail="Survey campaign is not open.")
+    if campaign.survey_type != "concern" or not campaign.allow_public_response:
+        raise HTTPException(status_code=403, detail="This campaign does not accept public concern responses.")
     group = db.get(StakeholderGroup, payload.stakeholder_group_id)
     if not group or not group.is_active:
         raise HTTPException(status_code=404, detail="Active stakeholder group not found.")
@@ -770,16 +961,17 @@ def submit_concern_survey(payload: ConcernSurveySubmit, db: Session = Depends(ge
     return {"campaign_id": campaign.id, "submitted": True, "submitted_at": response.submitted_at}
 
 
+@app.post("/api/surveys/expert/submit", response_model=PublicSurveySubmitOut)
 @app.post("/api/surveys/expert", response_model=PublicSurveySubmitOut)
 def submit_expert_assessment(payload: ExpertSurveySubmit, db: Session = Depends(get_db)):
     campaign = db.get(SurveyCampaign, payload.campaign_id)
     if not campaign or not is_campaign_open(campaign):
         raise HTTPException(status_code=400, detail="Survey campaign is not open.")
+    if campaign.survey_type != "expert_materiality" or not campaign.require_invitation_code:
+        raise HTTPException(status_code=403, detail="This campaign is not an expert materiality assessment.")
     invitation = resolve_invitation(db, payload.campaign_id, payload.invitation_code)
-    if invitation.survey_type != "expert":
+    if invitation.survey_type != "expert_materiality":
         raise HTTPException(status_code=403, detail="Invitation code is not valid for expert assessment.")
-    if invitation.used_at:
-        raise HTTPException(status_code=409, detail="Invitation code has already been used.")
     validate_topic_coverage(db, payload.scores)
     response = ExpertAssessmentResponse(
         campaign_id=campaign.id,
@@ -793,31 +985,27 @@ def submit_expert_assessment(payload: ExpertSurveySubmit, db: Session = Depends(
         ExpertAssessmentScore(
             response_id=response.id,
             topic_id=score.topic_id,
-            impact_likelihood_score=score.impact_likelihood_score,
-            positive_impact_score=score.positive_impact_score,
-            negative_impact_score=score.negative_impact_score,
-            admissions_revenue_score=score.admissions_revenue_score,
+            positive_likelihood_score=score.positive_likelihood_score,
+            positive_impact_magnitude_score=score.positive_impact_magnitude_score,
+            negative_likelihood_score=score.negative_likelihood_score,
+            negative_impact_magnitude_score=score.negative_impact_magnitude_score,
+            enrollment_revenue_score=score.enrollment_revenue_score,
+            legal_responsibility_score=score.legal_responsibility_score,
+            impact_likelihood_score=score.impact_likelihood_score or score.positive_likelihood_score or score.negative_likelihood_score,
+            positive_impact_score=score.positive_impact_score or score.positive_impact_magnitude_score,
+            negative_impact_score=score.negative_impact_score or score.negative_impact_magnitude_score,
+            admissions_revenue_score=score.admissions_revenue_score or score.enrollment_revenue_score,
             reputation_score=score.reputation_score,
             operating_cost_score=score.operating_cost_score,
             funding_score=score.funding_score,
-            legal_liability_score=score.legal_liability_score,
+            legal_liability_score=score.legal_liability_score or score.legal_responsibility_score,
             financial_likelihood_score=score.financial_likelihood_score,
-            impact_score=average_known([
-                score.impact_likelihood_score,
-                score.positive_impact_score,
-                score.negative_impact_score,
-            ]),
-            financial_score=average_known([
-                score.admissions_revenue_score,
-                score.reputation_score,
-                score.operating_cost_score,
-                score.funding_score,
-                score.legal_liability_score,
-                score.financial_likelihood_score,
-            ]),
+            impact_score=expert_impact_materiality(score),
+            financial_score=expert_financial_materiality(score),
         )
         for score in payload.scores
     ]
+    invitation.used_count += 1
     invitation.used_at = datetime.now(timezone.utc)
     log_event(db, "expert_assessment_submit", "survey_campaign", str(campaign.id), detail=f"invitation_id={invitation.id}")
     db.commit()
@@ -829,11 +1017,58 @@ def get_campaign_or_404(db: Session, campaign_id: int | None) -> SurveyCampaign:
     campaign = (
         db.get(SurveyCampaign, campaign_id)
         if campaign_id
-        else db.scalar(select(SurveyCampaign).where(SurveyCampaign.status == "active").order_by(SurveyCampaign.year.desc()))
+        else (
+            current_campaign_by_type(db, "expert_materiality")
+            or current_campaign_by_type(db, "concern")
+            or db.scalar(select(SurveyCampaign).where(SurveyCampaign.status == "active").order_by(SurveyCampaign.year.desc()))
+        )
     )
     if not campaign:
         raise HTTPException(status_code=404, detail="Survey campaign not found.")
     return campaign
+
+
+def get_campaign_by_type_or_404(db: Session, survey_type: str, campaign_id: int | None = None) -> SurveyCampaign:
+    campaign = db.get(SurveyCampaign, campaign_id) if campaign_id else current_campaign_by_type(db, survey_type)
+    if not campaign or campaign.survey_type != survey_type:
+        raise HTTPException(status_code=404, detail="Survey campaign not found.")
+    return campaign
+
+
+@app.patch("/api/admin/material-topics/{topic_id}/override")
+def override_material_topic(
+    topic_id: int,
+    payload: MaterialTopicOverrideIn,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    topic = db.get(Topic, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found.")
+    campaign = get_campaign_or_404(db, payload.campaign_id)
+    override = db.scalar(
+        select(MaterialTopicOverride).where(
+            MaterialTopicOverride.campaign_id == campaign.id,
+            MaterialTopicOverride.topic_id == topic.id,
+        )
+    )
+    if not override:
+        override = MaterialTopicOverride(campaign_id=campaign.id, topic_id=topic.id, created_by_user_id=user.id, is_material=payload.is_material, reason=payload.reason)
+        db.add(override)
+    else:
+        override.is_material = payload.is_material
+        override.reason = payload.reason
+        override.created_by_user_id = user.id
+    log_event(
+        db,
+        "override_material_topic",
+        "topic",
+        str(topic.id),
+        user=user,
+        detail=json.dumps({"campaign_id": campaign.id, "is_material": payload.is_material, "reason": payload.reason}, ensure_ascii=False),
+    )
+    db.commit()
+    return build_analytics(db, campaign)
 
 
 def decode_matrix_png(matrix_png_base64: str | None) -> bytes | None:
@@ -846,13 +1081,36 @@ def decode_matrix_png(matrix_png_base64: str | None) -> bytes | None:
         image = base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=422, detail="Invalid matrix PNG payload.") from exc
+    if len(image) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="Matrix image exceeds the 2MB limit.")
     if not image.startswith(b"\x89PNG\r\n\x1a\n"):
         raise HTTPException(status_code=422, detail="Matrix image must be a PNG.")
     return image
 
 
+def check_report_rate_limit(request: Request, user: User) -> None:
+    now = datetime.now(timezone.utc)
+    client_host = request.client.host if request.client else "unknown"
+    key = f"{user.id}:{client_host}:materiality-docx"
+    window_start = now.timestamp() - REPORT_RATE_LIMIT_WINDOW_SECONDS
+    recent = [stamp for stamp in REPORT_RATE_LIMIT.get(key, []) if stamp.timestamp() >= window_start]
+    if len(recent) >= REPORT_RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Too many report export requests. Please retry later.")
+    recent.append(now)
+    REPORT_RATE_LIMIT[key] = recent
+
+
 @app.get("/api/analytics", response_model=AnalyticsOut)
 def analytics(
+    campaign_id: int | None = None,
+    _: User = Depends(require_report_viewer),
+    db: Session = Depends(get_db),
+):
+    return build_analytics(db, get_campaign_or_404(db, campaign_id))
+
+
+@app.get("/api/admin/dashboard/materiality-matrix", response_model=AnalyticsOut)
+def admin_dashboard_materiality_matrix(
     campaign_id: int | None = None,
     _: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
@@ -923,9 +1181,11 @@ def download_report(
 @app.post("/api/reports/materiality.docx")
 def download_report_with_matrix(
     payload: MaterialityReportRequest,
+    request: Request,
     user: User = Depends(require_report_viewer),
     db: Session = Depends(get_db),
 ):
+    check_report_rate_limit(request, user)
     campaign = get_campaign_or_404(db, payload.campaign_id)
     report = create_materiality_report(build_analytics(db, campaign), matrix_image=decode_matrix_png(payload.matrix_png_base64))
     log_event(db, "export_word", "survey_campaign", str(campaign.id), user=user, detail="with_matrix_image=true")
@@ -967,6 +1227,60 @@ def download_excel(
     log_event(db, "export_excel", "survey_campaign", str(campaign.id), user=user)
     db.commit()
     filename = f"materiality-export-{campaign.year}.xlsx"
+    return StreamingResponse(
+        export,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/admin/export/concern-responses.xlsx")
+def download_concern_excel(
+    campaign_id: int | None = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_by_type_or_404(db, "concern", campaign_id)
+    export = create_concern_export(db, campaign)
+    log_event(db, "export_concern_responses", "survey_campaign", str(campaign.id), user=user)
+    db.commit()
+    filename = f"concern-responses-{campaign.year}.xlsx"
+    return StreamingResponse(
+        export,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/admin/export/expert-responses.xlsx")
+def download_expert_excel(
+    campaign_id: int | None = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_by_type_or_404(db, "expert_materiality", campaign_id)
+    export = create_expert_export(db, campaign)
+    log_event(db, "export_expert_responses", "survey_campaign", str(campaign.id), user=user)
+    db.commit()
+    filename = f"expert-responses-{campaign.year}.xlsx"
+    return StreamingResponse(
+        export,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/admin/export/anonymized-responses.xlsx")
+def download_anonymized_excel(
+    campaign_id: int | None = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    campaign = get_campaign_or_404(db, campaign_id)
+    export = create_anonymized_export(db, campaign)
+    log_event(db, "export_anonymized_responses", "survey_campaign", str(campaign.id), user=user)
+    db.commit()
+    filename = f"anonymized-responses-{campaign.year}.xlsx"
     return StreamingResponse(
         export,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

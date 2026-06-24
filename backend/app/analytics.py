@@ -4,149 +4,244 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .ai_analysis import analysis_content, fallback_ai_sections, latest_ai_analysis
-from .models import StakeholderGroup, SurveyCampaign, SurveyResponse, Topic, TopicScore, User
+from .models import (
+    ConcernSurveyResponse,
+    ConcernSurveyScore,
+    ExpertAssessmentResponse,
+    ExpertAssessmentScore,
+    InvitationCode,
+    MaterialTopicOverride,
+    StakeholderGroup,
+    SurveyCampaign,
+    Topic,
+    User,
+)
 
 
 KEYWORD_MAP = {
-    "能源": ("能源", "用電", "節能", "再生能源"),
-    "溫室氣體": ("溫室氣體", "碳", "減碳", "排放"),
-    "資訊安全": ("資訊安全", "資安", "個資", "隱私"),
-    "人才培育": ("人才培育", "課程", "教學", "學生"),
-    "社區參與": ("社區參與", "社區", "USR", "地方"),
+    "能源管理": ("能源", "節能", "用電", "再生能源"),
+    "溫室氣體": ("碳", "溫室氣體", "盤查", "減碳"),
+    "資訊安全": ("資安", "個資", "隱私", "資料"),
+    "人才培育": ("人才", "課程", "學生", "教學"),
+    "社區參與": ("社區", "地方", "USR", "參與"),
 }
 
 QUADRANTS = {
-    "major": "重大主題",
-    "disclosure": "揭露主題",
-    "risk": "風險主題",
-    "watch": "觀察主題",
+    "core": "核心重大主題",
+    "impact": "衝擊重大主題",
+    "financial": "財務重大主題",
+    "watch": "持續觀察議題",
     "pending": "尚無資料",
 }
 
 
-def quadrant(impact: float, financial: float, campaign: SurveyCampaign) -> str:
-    high_impact = impact >= campaign.impact_threshold
-    high_financial = financial >= campaign.financial_threshold
+def average(values: list[float | int | None]) -> float:
+    known = [float(value) for value in values if value is not None]
+    return round(sum(known) / len(known), 2) if known else 0.0
+
+
+def quadrant(impact: float, financial: float, threshold: float, has_data: bool = True) -> str:
+    if not has_data:
+        return QUADRANTS["pending"]
+    high_impact = impact >= threshold
+    high_financial = financial >= threshold
     if high_impact and high_financial:
-        return QUADRANTS["major"]
+        return QUADRANTS["core"]
     if high_impact:
-        return QUADRANTS["disclosure"]
+        return QUADRANTS["impact"]
     if high_financial:
-        return QUADRANTS["risk"]
+        return QUADRANTS["financial"]
     return QUADRANTS["watch"]
 
 
 def extract_keywords(answers: list[str]) -> list[dict]:
     counts = Counter()
-    text = "\n".join(answers)
+    text = "\n".join(answers).lower()
     for label, aliases in KEYWORD_MAP.items():
-        counts[label] = sum(text.lower().count(alias.lower()) for alias in aliases)
+        counts[label] = sum(text.count(alias.lower()) for alias in aliases)
     return [{"keyword": keyword, "count": count} for keyword, count in counts.most_common() if count > 0][:8]
 
 
-def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
-    response_count = db.scalar(
-        select(func.count(SurveyResponse.id)).where(SurveyResponse.campaign_id == campaign.id)
-    ) or 0
-    eligible_count = db.scalar(select(func.count(User.id)).where(User.is_active.is_(True))) or 0
+def campaign_by_type(db: Session, year: int, survey_type: str) -> SurveyCampaign | None:
+    return db.scalar(
+        select(SurveyCampaign)
+        .where(SurveyCampaign.year == year, SurveyCampaign.survey_type == survey_type, SurveyCampaign.is_active.is_(True))
+        .order_by(SurveyCampaign.status.desc(), SurveyCampaign.id.desc())
+    )
 
+
+def resolve_campaigns(db: Session, campaign: SurveyCampaign) -> tuple[SurveyCampaign | None, SurveyCampaign | None, SurveyCampaign]:
+    concern = campaign if campaign.survey_type == "concern" else campaign_by_type(db, campaign.year, "concern")
+    expert = campaign if campaign.survey_type == "expert_materiality" else campaign_by_type(db, campaign.year, "expert_materiality")
+    primary = expert or concern or campaign
+    return concern, expert, primary
+
+
+def concern_response_count(db: Session, campaign: SurveyCampaign | None) -> int:
+    if not campaign:
+        return 0
+    return db.scalar(select(func.count(ConcernSurveyResponse.id)).where(ConcernSurveyResponse.campaign_id == campaign.id)) or 0
+
+
+def expert_response_count(db: Session, campaign: SurveyCampaign | None) -> int:
+    if not campaign:
+        return 0
+    return db.scalar(select(func.count(ExpertAssessmentResponse.id)).where(ExpertAssessmentResponse.campaign_id == campaign.id)) or 0
+
+
+def eligible_user_count(db: Session, campaign: SurveyCampaign | None) -> int:
+    if not campaign or campaign.require_invitation_code:
+        return 0
+    return db.scalar(select(func.count(User.id)).where(User.is_active.is_(True), User.role == "respondent")) or 0
+
+
+def invitation_counts(db: Session, campaign: SurveyCampaign | None) -> dict[str, int]:
+    if not campaign:
+        return {"issued": 0, "used": 0}
+    issued = db.scalar(
+        select(func.count(InvitationCode.id)).where(
+            InvitationCode.campaign_id == campaign.id,
+            InvitationCode.is_active.is_(True),
+            InvitationCode.revoked_at.is_(None),
+        )
+    ) or 0
+    used = db.scalar(
+        select(func.coalesce(func.sum(InvitationCode.used_count), 0)).where(
+            InvitationCode.campaign_id == campaign.id,
+            InvitationCode.is_active.is_(True),
+            InvitationCode.revoked_at.is_(None),
+        )
+    ) or 0
+    return {"issued": int(issued), "used": int(used)}
+
+
+def concern_by_topic(db: Session, campaign: SurveyCampaign | None) -> dict[int, dict]:
+    if not campaign:
+        return {}
     rows = db.execute(
         select(
-            Topic.id,
-            Topic.code,
-            Topic.name_zh,
-            Topic.category,
-            func.avg(TopicScore.organization_score),
-            func.avg(TopicScore.impact_score),
-            func.avg(TopicScore.financial_score),
-            func.count(TopicScore.id),
+            ConcernSurveyScore.topic_id,
+            func.avg(ConcernSurveyScore.concern_score),
+            func.count(ConcernSurveyScore.id),
         )
-        .outerjoin(TopicScore, TopicScore.topic_id == Topic.id)
-        .outerjoin(SurveyResponse, SurveyResponse.id == TopicScore.response_id)
-        .where(
-            Topic.is_active.is_(True),
-            (SurveyResponse.campaign_id == campaign.id) | (SurveyResponse.id.is_(None)),
-        )
-        .group_by(Topic.id)
-        .order_by(Topic.sort_order)
+        .join(ConcernSurveyResponse, ConcernSurveyResponse.id == ConcernSurveyScore.response_id)
+        .where(ConcernSurveyResponse.campaign_id == campaign.id)
+        .group_by(ConcernSurveyScore.topic_id)
     ).all()
+    return {topic_id: {"concern_score": round(float(score or 0), 2), "count": count} for topic_id, score, count in rows}
 
-    weighted_rows = db.execute(
-        select(
-            TopicScore.topic_id,
-            func.sum(TopicScore.impact_score * StakeholderGroup.weight),
-            func.sum(TopicScore.financial_score * StakeholderGroup.weight),
-            func.sum(StakeholderGroup.weight),
-        )
-        .join(SurveyResponse, SurveyResponse.id == TopicScore.response_id)
-        .join(StakeholderGroup, StakeholderGroup.id == SurveyResponse.stakeholder_group_id)
-        .where(SurveyResponse.campaign_id == campaign.id)
-        .group_by(TopicScore.topic_id)
+
+def expert_scores_by_topic(db: Session, campaign: SurveyCampaign | None) -> dict[int, dict]:
+    if not campaign:
+        return {}
+    rows = db.execute(
+        select(ExpertAssessmentScore, ExpertAssessmentResponse.stakeholder_group_id, StakeholderGroup.weight)
+        .join(ExpertAssessmentResponse, ExpertAssessmentResponse.id == ExpertAssessmentScore.response_id)
+        .join(StakeholderGroup, StakeholderGroup.id == ExpertAssessmentResponse.stakeholder_group_id)
+        .where(ExpertAssessmentResponse.campaign_id == campaign.id)
     ).all()
-    weighted_by_topic = {
-        topic_id: (
-            round(float(weighted_impact or 0) / float(weight_sum or 1), 2),
-            round(float(weighted_financial or 0) / float(weight_sum or 1), 2),
-        )
-        for topic_id, weighted_impact, weighted_financial, weight_sum in weighted_rows
-    }
-
-    topics = []
-    for topic_id, code, name, category, organization, impact, financial, count in rows:
-        organization_value = round(float(organization or 0), 2)
-        impact_value = round(float(impact or 0), 2)
-        financial_value = round(float(financial or 0), 2)
-        weighted_impact, weighted_financial = weighted_by_topic.get(topic_id, (0.0, 0.0))
-        topics.append(
+    buckets: dict[int, dict] = {}
+    for score, _group_id, weight in rows:
+        bucket = buckets.setdefault(
+            score.topic_id,
             {
-                "topic_id": topic_id,
-                "code": code,
-                "name": name,
-                "category": category,
-                "organization": organization_value,
-                "impact": impact_value,
-                "financial": financial_value,
-                "weighted_impact": weighted_impact,
-                "weighted_financial": weighted_financial,
-                "response_count": count,
-                "quadrant": quadrant(impact_value, financial_value, campaign) if count else QUADRANTS["pending"],
-            }
+                "impact_values": [],
+                "financial_values": [],
+                "weighted_impact_sum": 0.0,
+                "weighted_financial_sum": 0.0,
+                "weight_sum": 0.0,
+                "unknown_count": 0,
+                "field_count": 0,
+                "count": 0,
+            },
         )
+        impact = score.impact_score or 0
+        financial = score.financial_score or 0
+        bucket["impact_values"].append(impact)
+        bucket["financial_values"].append(financial)
+        bucket["weighted_impact_sum"] += impact * float(weight or 1)
+        bucket["weighted_financial_sum"] += financial * float(weight or 1)
+        bucket["weight_sum"] += float(weight or 1)
+        fields = [
+            score.positive_likelihood_score if score.positive_likelihood_score is not None else score.impact_likelihood_score,
+            score.positive_impact_magnitude_score if score.positive_impact_magnitude_score is not None else score.positive_impact_score,
+            score.negative_likelihood_score if score.negative_likelihood_score is not None else score.impact_likelihood_score,
+            score.negative_impact_magnitude_score if score.negative_impact_magnitude_score is not None else score.negative_impact_score,
+            score.enrollment_revenue_score if score.enrollment_revenue_score is not None else score.admissions_revenue_score,
+            score.reputation_score,
+            score.operating_cost_score,
+            score.funding_score,
+            score.legal_responsibility_score if score.legal_responsibility_score is not None else score.legal_liability_score,
+            score.financial_likelihood_score,
+        ]
+        bucket["unknown_count"] += len([value for value in fields if value is None])
+        bucket["field_count"] += len(fields)
+        bucket["count"] += 1
+    result = {}
+    for topic_id, bucket in buckets.items():
+        weight_sum = bucket["weight_sum"] or 1
+        result[topic_id] = {
+            "impact": average(bucket["impact_values"]),
+            "financial": average(bucket["financial_values"]),
+            "weighted_impact": round(bucket["weighted_impact_sum"] / weight_sum, 2),
+            "weighted_financial": round(bucket["weighted_financial_sum"] / weight_sum, 2),
+            "unknown_ratio": round(bucket["unknown_count"] / bucket["field_count"] * 100, 1) if bucket["field_count"] else 0.0,
+            "count": bucket["count"],
+        }
+    return result
 
-    count_rows = db.execute(
-        select(SurveyResponse.stakeholder_group_id, func.count(SurveyResponse.id))
-        .where(SurveyResponse.campaign_id == campaign.id)
-        .group_by(SurveyResponse.stakeholder_group_id)
-    ).all()
-    response_counts = {group_id: count for group_id, count in count_rows}
-    stakeholder_rows = db.execute(
+
+def stakeholder_metrics(db: Session, campaign: SurveyCampaign | None) -> list[dict]:
+    counts: dict[int, int] = {}
+    if campaign:
+        rows = db.execute(
+            select(ConcernSurveyResponse.stakeholder_group_id, func.count(ConcernSurveyResponse.id))
+            .where(ConcernSurveyResponse.campaign_id == campaign.id)
+            .group_by(ConcernSurveyResponse.stakeholder_group_id)
+        ).all()
+        counts = {group_id: count for group_id, count in rows}
+    groups = db.execute(
         select(StakeholderGroup.id, StakeholderGroup.name, StakeholderGroup.weight)
         .where(StakeholderGroup.is_active.is_(True))
-        .order_by(StakeholderGroup.scope, StakeholderGroup.name)
+        .order_by(StakeholderGroup.sort_order, StakeholderGroup.name)
     ).all()
-    stakeholders = [
-        {"id": group_id, "name": name, "weight": float(weight), "count": response_counts.get(group_id, 0)}
-        for group_id, name, weight in stakeholder_rows
-    ]
+    return [{"id": group_id, "name": name, "weight": float(weight), "count": counts.get(group_id, 0)} for group_id, name, weight in groups]
 
-    stakeholder_topic_rows = db.execute(
+
+def evaluator_role_metrics(db: Session, campaign: SurveyCampaign | None) -> list[dict]:
+    if not campaign:
+        return []
+    rows = db.execute(
+        select(func.coalesce(InvitationCode.evaluator_role, "未分類"), func.count(ExpertAssessmentResponse.id))
+        .join(ExpertAssessmentResponse, ExpertAssessmentResponse.invitation_code_id == InvitationCode.id)
+        .where(ExpertAssessmentResponse.campaign_id == campaign.id)
+        .group_by(func.coalesce(InvitationCode.evaluator_role, "未分類"))
+        .order_by(func.count(ExpertAssessmentResponse.id).desc())
+    ).all()
+    return [{"evaluator_role": role, "count": count} for role, count in rows]
+
+
+def stakeholder_topic_rows(db: Session, campaign: SurveyCampaign | None) -> list[dict]:
+    if not campaign:
+        return []
+    rows = db.execute(
         select(
             StakeholderGroup.id,
             StakeholderGroup.name,
             Topic.id,
             Topic.code,
-            func.avg(TopicScore.impact_score),
-            func.avg(TopicScore.financial_score),
-            func.count(TopicScore.id),
+            func.avg(ExpertAssessmentScore.impact_score),
+            func.avg(ExpertAssessmentScore.financial_score),
+            func.count(ExpertAssessmentScore.id),
         )
-        .join(SurveyResponse, SurveyResponse.stakeholder_group_id == StakeholderGroup.id)
-        .join(TopicScore, TopicScore.response_id == SurveyResponse.id)
-        .join(Topic, Topic.id == TopicScore.topic_id)
-        .where(SurveyResponse.campaign_id == campaign.id)
+        .join(ExpertAssessmentResponse, ExpertAssessmentResponse.stakeholder_group_id == StakeholderGroup.id)
+        .join(ExpertAssessmentScore, ExpertAssessmentScore.response_id == ExpertAssessmentResponse.id)
+        .join(Topic, Topic.id == ExpertAssessmentScore.topic_id)
+        .where(ExpertAssessmentResponse.campaign_id == campaign.id)
         .group_by(StakeholderGroup.id, Topic.id)
-        .order_by(StakeholderGroup.name, Topic.sort_order)
+        .order_by(StakeholderGroup.sort_order, Topic.sort_order)
     ).all()
-    stakeholder_topics = [
+    return [
         {
             "stakeholder_group_id": group_id,
             "stakeholder_group_name": group_name,
@@ -156,30 +251,126 @@ def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
             "financial": round(float(financial or 0), 2),
             "response_count": count,
         }
-        for group_id, group_name, topic_id, code, impact, financial, count in stakeholder_topic_rows
+        for group_id, group_name, topic_id, code, impact, financial, count in rows
     ]
 
-    answers = db.scalars(
-        select(SurveyResponse.open_answer).where(
-            SurveyResponse.campaign_id == campaign.id,
-            SurveyResponse.open_answer.is_not(None),
-        )
-    ).all()
-    keywords = extract_keywords([answer for answer in answers if answer])
-    stakeholder_count = len([item for item in stakeholders if item["count"] > 0])
 
+def open_answers(db: Session, concern: SurveyCampaign | None, expert: SurveyCampaign | None) -> list[str]:
+    values: list[str] = []
+    if concern:
+        values.extend(
+            db.scalars(
+                select(ConcernSurveyResponse.open_answer).where(
+                    ConcernSurveyResponse.campaign_id == concern.id,
+                    ConcernSurveyResponse.open_answer.is_not(None),
+                )
+            ).all()
+        )
+    if expert:
+        values.extend(
+            db.scalars(
+                select(ExpertAssessmentResponse.open_answer).where(
+                    ExpertAssessmentResponse.campaign_id == expert.id,
+                    ExpertAssessmentResponse.open_answer.is_not(None),
+                )
+            ).all()
+        )
+    return [value for value in values if value]
+
+
+def override_by_topic(db: Session, campaign: SurveyCampaign | None) -> dict[int, MaterialTopicOverride]:
+    if not campaign:
+        return {}
+    rows = db.scalars(select(MaterialTopicOverride).where(MaterialTopicOverride.campaign_id == campaign.id)).all()
+    return {row.topic_id: row for row in rows}
+
+
+def build_analytics(db: Session, campaign: SurveyCampaign) -> dict:
+    concern_campaign, expert_campaign, primary_campaign = resolve_campaigns(db, campaign)
+    threshold = primary_campaign.materiality_threshold or 3.5
+    concern_count = concern_response_count(db, concern_campaign)
+    expert_count = expert_response_count(db, expert_campaign)
+    concern_invitations = invitation_counts(db, concern_campaign)
+    expert_invitations = invitation_counts(db, expert_campaign)
+    issued_invitation_count = concern_invitations["issued"] + expert_invitations["issued"]
+    used_invitation_count = concern_invitations["used"] + expert_invitations["used"]
+    eligible_users = eligible_user_count(db, concern_campaign) + eligible_user_count(db, expert_campaign)
+    concern_topics = concern_by_topic(db, concern_campaign)
+    expert_topics = expert_scores_by_topic(db, expert_campaign)
+    overrides = override_by_topic(db, expert_campaign or primary_campaign)
+
+    topic_rows = db.scalars(select(Topic).where(Topic.is_active.is_(True)).order_by(Topic.sort_order, Topic.id)).all()
+    topics = []
+    unknown_fields = 0.0
+    unknown_weight = 0
+    for topic in topic_rows:
+        concern = concern_topics.get(topic.id, {"concern_score": 0.0, "count": 0})
+        expert = expert_topics.get(topic.id, {})
+        impact = float(expert.get("impact", 0.0))
+        financial = float(expert.get("financial", 0.0))
+        response_count = int(expert.get("count", 0))
+        computed_material = bool(impact >= threshold or financial >= threshold)
+        override = overrides.get(topic.id)
+        is_final = override.is_material if override else computed_material
+        reason = override.reason if override else ("達到衝擊或財務重大性門檻" if computed_material else None)
+        unknown_ratio = float(expert.get("unknown_ratio", 0.0))
+        unknown_fields += unknown_ratio * response_count
+        unknown_weight += response_count
+        topics.append(
+            {
+                "topic_id": topic.id,
+                "code": topic.topic_code or topic.code,
+                "name": topic.name_zh,
+                "category": topic.category,
+                "organization": 0.0,
+                "impact": impact,
+                "financial": financial,
+                "weighted_impact": float(expert.get("weighted_impact", impact)),
+                "weighted_financial": float(expert.get("weighted_financial", financial)),
+                "concern_score": float(concern["concern_score"]),
+                "concern_response_count": int(concern["count"]),
+                "impact_materiality_score": impact,
+                "financial_materiality_score": financial,
+                "unknown_ratio": unknown_ratio,
+                "is_final_material_topic": is_final,
+                "final_topic_reason": reason,
+                "manually_adjusted": override is not None,
+                "response_count": response_count,
+                "quadrant": quadrant(impact, financial, threshold, response_count > 0),
+            }
+        )
+
+    final_topics = sorted(
+        [topic for topic in topics if topic["is_final_material_topic"]],
+        key=lambda item: (item["impact_materiality_score"] + item["financial_materiality_score"], item["concern_score"]),
+        reverse=True,
+    )
+    total_count = concern_count + expert_count
+    denominator = eligible_users + issued_invitation_count
+    completion_rate = round(total_count / denominator * 100, 1) if denominator else 0.0
+    stakeholder_items = stakeholder_metrics(db, concern_campaign)
     data = {
-        "campaign": campaign,
-        "response_count": response_count,
-        "stakeholder_count": stakeholder_count,
-        "completion_rate": round(response_count / eligible_count * 100, 1) if eligible_count else 0,
+        "campaign": primary_campaign,
+        "concern_campaign": concern_campaign,
+        "expert_campaign": expert_campaign,
+        "response_count": total_count,
+        "concern_response_count": concern_count,
+        "expert_response_count": expert_count,
+        "issued_invitation_count": issued_invitation_count,
+        "used_invitation_count": used_invitation_count,
+        "stakeholder_count": len([item for item in stakeholder_items if item["count"] > 0]),
+        "completion_rate": completion_rate,
         "topics": topics,
-        "stakeholders": stakeholders,
-        "stakeholder_topics": stakeholder_topics,
-        "keywords": keywords,
+        "stakeholders": stakeholder_items,
+        "evaluator_roles": evaluator_role_metrics(db, expert_campaign),
+        "final_material_topics": final_topics,
+        "unknown_ratio": round(unknown_fields / unknown_weight, 1) if unknown_weight else 0.0,
+        "threshold": threshold,
+        "stakeholder_topics": stakeholder_topic_rows(db, expert_campaign),
+        "keywords": extract_keywords(open_answers(db, concern_campaign, expert_campaign)),
     }
     fallback = fallback_ai_sections(data)
-    ai_version = latest_ai_analysis(db, campaign.id)
+    ai_version = latest_ai_analysis(db, primary_campaign.id)
     ai = analysis_content(ai_version, fallback)
     data["ai_analysis"] = ai
     data["analysis_zh"] = ai["zh_summary"]

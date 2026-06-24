@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: university-materiality-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_MODE
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://jinhonju-dev.github.io/university-materiality-platform
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://jinhonju-dev.github.io
+      - key: JWT_EXPIRE_MINUTES
+        value: "120"
+      - key: SEED_DEMO_ACCOUNTS
+        value: "false"
+      - key: OPENAI_API_KEY
+        sync: false

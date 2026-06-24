@@ -1,6 +1,19 @@
 import { DEMO_MODE, demoAIAnalysisVersion, demoAnalytics, demoCampaign, demoCampaigns, demoInvitations, demoLogin, demoStakeholderGroups, demoTopicAdmins, demoTopics } from "./demo";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+function apiRoot() {
+  return RAW_API_URL.replace(/\/+$/, "").replace(/\/api$/, "");
+}
+
+function apiUrl(path: string) {
+  if (!RAW_API_URL) {
+    throw new ApiError("NEXT_PUBLIC_API_URL is not configured for Production Mode.", 500);
+  }
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (normalizedPath === "/health") return `${apiRoot()}/health`;
+  return `${apiRoot()}/api${normalizedPath}`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -25,7 +38,7 @@ export async function api<T>(
     }
     if (path === "/topics") return demoTopics as T;
     if (path === "/system/mode") return { mode: "demo", demo: true } as T;
-    if (path === "/public/survey-config") {
+    if (path === "/public/survey-config" || path === "/surveys/concern/current" || path === "/surveys/expert/current") {
       return {
         app_mode: "demo",
         campaign: demoCampaign,
@@ -35,7 +48,7 @@ export async function api<T>(
     }
     if (path === "/admin/topics" && options.method === "POST") {
       const body = JSON.parse(String(options.body || "{}"));
-      return { ...body, id: Date.now(), is_active: true } as T;
+      return { ...body, id: Date.now(), code: body.code || body.topic_code, topic_code: body.topic_code || body.code, is_active: true } as T;
     }
     if (path === "/admin/topics") return demoTopicAdmins as T;
     if (path.startsWith("/admin/topics/")) {
@@ -50,18 +63,22 @@ export async function api<T>(
       return { ...demoCampaigns[0], ...body, id: Date.now(), response_count: 0, invitation_count: 0, used_invitation_count: 0 } as T;
     }
     if (path === "/admin/campaigns") return demoCampaigns as T;
-    if (path.startsWith("/admin/campaigns/") && path.endsWith("/invitations") && options.method !== "POST") {
+    if (path.startsWith("/admin/campaigns/") && (path.endsWith("/invitations") || path.endsWith("/invitation-codes")) && options.method !== "POST") {
       return demoInvitations as T;
     }
-    if (path.startsWith("/admin/campaigns/") && path.endsWith("/invitations") && options.method === "POST") {
+    if (path.startsWith("/admin/campaigns/") && (path.endsWith("/invitations") || path.endsWith("/invitation-codes")) && options.method === "POST") {
       const body = JSON.parse(String(options.body || "{}"));
       return Array.from({ length: body.count || 1 }, (_, index) => ({
         ...demoInvitations[0],
         id: Date.now() + index,
         code: `DEMO-${index + 1}`.padEnd(10, "X"),
+        code_prefix: "DEMO",
         stakeholder_group_id: body.stakeholder_group_id,
         label: `${body.label_prefix || "DEMO"}-${index + 1}`,
       })) as T;
+    }
+    if (path.startsWith("/admin/invitation-codes/") && path.endsWith("/revoke")) {
+      return { ...demoInvitations[0], is_active: false, revoked_at: new Date().toISOString() } as T;
     }
     if (path.startsWith("/admin/campaigns/")) {
       const id = Number(path.split("/")[3]);
@@ -70,6 +87,15 @@ export async function api<T>(
       return { ...current, ...updates } as T;
     }
     if (path === "/analytics") return demoAnalytics as T;
+    if (path.startsWith("/admin/material-topics/") && path.endsWith("/override")) {
+      const body = JSON.parse(String(options.body || "{}"));
+      return {
+        ...demoAnalytics,
+        topics: demoAnalytics.topics.map((topic) => topic.topic_id === Number(path.split("/")[3])
+          ? { ...topic, is_final_material_topic: body.is_material, manually_adjusted: true, final_topic_reason: body.reason }
+          : topic),
+      } as T;
+    }
     if (path === "/admin/ai-analyses") return [demoAIAnalysisVersion] as T;
     if (path === "/admin/ai-analyses/latest") return demoAIAnalysisVersion as T;
     if (path === "/admin/ai-analyses/generate") {
@@ -82,18 +108,18 @@ export async function api<T>(
       const updates = options.body ? JSON.parse(String(options.body)) : {};
       return { ...current, ...updates } as T;
     }
-    if (path === "/surveys/submit" || path === "/surveys/submit/anonymous" || path === "/surveys/concern" || path === "/surveys/expert") {
+    if (path === "/surveys/submit" || path === "/surveys/submit/anonymous" || path === "/surveys/concern" || path === "/surveys/concern/submit" || path === "/surveys/expert" || path === "/surveys/expert/submit") {
       return {
         campaign_id: demoCampaign.id,
         submitted: true,
         submitted_at: new Date().toISOString(),
       } as T;
     }
-    if (path === "/surveys/draft") return { saved: true } as T;
+    if (path === "/surveys/draft" || path === "/surveys/expert/draft") return { saved: true } as T;
     throw new ApiError("Demo mode does not implement this endpoint.", 404);
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -126,7 +152,7 @@ async function downloadFile(token: string, url: string, filename: string, option
     return;
   }
 
-  const response = await fetch(`${API_URL}${url}`, {
+  const response = await fetch(apiUrl(url), {
     ...options,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -134,7 +160,7 @@ async function downloadFile(token: string, url: string, filename: string, option
       ...options.headers,
     },
   });
-  if (!response.ok) throw new Error("下載失敗，請確認權限與後端服務狀態。");
+  if (!response.ok) throw new Error("下載失敗，請稍後再試。");
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -170,7 +196,7 @@ export async function downloadCsv(token: string, campaignId: number, anonymized 
 
 export function downloadMatrixPng(filename = "materiality-matrix.png") {
   const canvas = document.querySelector<HTMLCanvasElement>(".matrix-wrap canvas");
-  if (!canvas) throw new Error("尚未產生矩陣圖。");
+  if (!canvas) throw new Error("找不到可下載的矩陣圖。");
   const anchor = document.createElement("a");
   anchor.href = canvas.toDataURL("image/png");
   anchor.download = filename;

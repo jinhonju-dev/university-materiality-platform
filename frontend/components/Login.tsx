@@ -52,6 +52,18 @@ export function Login({
           <span className="eyebrow">SUSTAINABILITY INTELLIGENCE</span>
           <h1>大學永續報告書利害關係人調查與雙重重大性評估</h1>
           <p>正式版支援關注度調查、專家重大性評估、邀請碼、權限控管、資料庫保存與報告匯出。</p>
+          <div className="survey-entry-grid">
+            <Link className="survey-entry-card" href="/survey/concern">
+              <span>利害關係人關注度調查</span>
+              <strong>所有利害關係人皆可填答</strong>
+              <small>不需登入、不需邀請碼，自行選擇身分類別，評估各永續議題關注程度 1～5 分。</small>
+            </Link>
+            <Link className="survey-entry-card expert" href="/survey/expert">
+              <span>專家重大性評估</span>
+              <strong>主管與專責人員填答</strong>
+              <small>需輸入邀請碼，評估衝擊重大性與財務重大性，作為雙重重大性矩陣依據。</small>
+            </Link>
+          </div>
           <div className="feature-row">
             <span><CheckCircle2 size={17} /> GRI 2021</span>
             <span><CheckCircle2 size={17} /> 雙重重大性</span>
@@ -75,6 +87,18 @@ export function Login({
             填答者不需要正式帳號。關注度調查請使用公開連結；專家重大性評估請使用管理者核發的邀請碼。
           </p>
           {DEMO_MODE && <div className="demo-notice">展示模式：使用展示資料與展示帳號，不會永久保存正式問卷。</div>}
+          <div className="survey-entry-grid login-entry-grid">
+            <Link className="survey-entry-card" href="/survey/concern">
+              <span>公開問卷</span>
+              <strong>利害關係人關注度調查</strong>
+              <small>所有利害關係人皆可填答，不需登入。</small>
+            </Link>
+            <Link className="survey-entry-card expert" href="/survey/expert">
+              <span>邀請碼問卷</span>
+              <strong>專家重大性評估</strong>
+              <small>主管與專責人員使用邀請碼填答。</small>
+            </Link>
+          </div>
 
           <label>
             Email

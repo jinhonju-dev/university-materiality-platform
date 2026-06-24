@@ -35,15 +35,16 @@ export function MatrixChart({
   campaign: Campaign;
 }) {
   const activeTopics = topics.filter((topic) => topic.response_count > 0);
+  const threshold = campaign.materiality_threshold || campaign.impact_threshold || 3.5;
   const data = {
     datasets: activeTopics.map((topic) => ({
       label: `${topic.code} ${topic.name}`,
-      data: [{ x: topic.financial, y: topic.impact }],
+      data: [{ x: topic.financial_materiality_score, y: topic.impact_materiality_score }],
       backgroundColor: categoryColors[topic.category] || "#4d6a5a",
-      borderColor: "#ffffff",
-      borderWidth: 2,
-      pointRadius: 8,
-      pointHoverRadius: 10,
+      borderColor: topic.is_final_material_topic ? "#17281f" : "#ffffff",
+      borderWidth: topic.is_final_material_topic ? 3 : 2,
+      pointRadius: Math.max(6, Math.min(18, 4 + topic.concern_score * 2.4)),
+      pointHoverRadius: Math.max(10, Math.min(22, 8 + topic.concern_score * 2.4)),
     })),
   };
 
@@ -53,16 +54,16 @@ export function MatrixChart({
     layout: { padding: 18 },
     scales: {
       x: {
-        min: 1,
+        min: 0,
         max: 5,
-        title: { display: true, text: "財務重大性", color: "#66746c" },
+        title: { display: true, text: "Financial Materiality Score", color: "#66746c" },
         grid: { color: "#e7ece9" },
         ticks: { stepSize: 1 },
       },
       y: {
-        min: 1,
+        min: 0,
         max: 5,
-        title: { display: true, text: "衝擊重大性", color: "#66746c" },
+        title: { display: true, text: "Impact Materiality Score", color: "#66746c" },
         grid: { color: "#e7ece9" },
         ticks: { stepSize: 1 },
       },
@@ -76,11 +77,13 @@ export function MatrixChart({
             return [
               `${topic.code} ${topic.name}`,
               `類別：${categoryLabel(topic.category)}`,
-              `衝擊重大性：${topic.impact.toFixed(2)}`,
-              `財務重大性：${topic.financial.toFixed(2)}`,
-              `組織影響：${topic.organization.toFixed(2)}`,
+              `衝擊重大性：${topic.impact_materiality_score.toFixed(2)}`,
+              `財務重大性：${topic.financial_materiality_score.toFixed(2)}`,
+              `關注度：${topic.concern_score.toFixed(2)}`,
               `回答數：${topic.response_count}`,
-              `判定象限：${topic.quadrant}`,
+              `不清楚比例：${topic.unknown_ratio.toFixed(1)}%`,
+              `象限：${topic.quadrant}`,
+              `最終重大主題：${topic.is_final_material_topic ? "是" : "否"}`,
             ];
           },
         },
@@ -93,8 +96,8 @@ export function MatrixChart({
     beforeDatasetsDraw(chart: ChartJS) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea) return;
-      const x = scales.x.getPixelForValue(campaign.financial_threshold);
-      const y = scales.y.getPixelForValue(campaign.impact_threshold);
+      const x = scales.x.getPixelForValue(threshold);
+      const y = scales.y.getPixelForValue(threshold);
       ctx.save();
       ctx.setLineDash([5, 5]);
       ctx.strokeStyle = "#91a49a";
@@ -106,12 +109,12 @@ export function MatrixChart({
       ctx.lineTo(chartArea.right, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(24, 53, 42, 0.72)";
+      ctx.fillStyle = "rgba(24, 53, 42, 0.78)";
       ctx.font = "12px sans-serif";
-      ctx.fillText("揭露主題", chartArea.left + 10, chartArea.top + 18);
-      ctx.fillText("重大主題", x + 10, chartArea.top + 18);
-      ctx.fillText("觀察主題", chartArea.left + 10, chartArea.bottom - 10);
-      ctx.fillText("風險主題", x + 10, chartArea.bottom - 10);
+      ctx.fillText("衝擊重大主題", chartArea.left + 10, chartArea.top + 18);
+      ctx.fillText("核心重大主題", x + 10, chartArea.top + 18);
+      ctx.fillText("持續觀察議題", chartArea.left + 10, chartArea.bottom - 10);
+      ctx.fillText("財務重大主題", x + 10, chartArea.bottom - 10);
       ctx.restore();
     },
     afterDatasetsDraw(chart: ChartJS) {
@@ -137,7 +140,7 @@ export function MatrixChart({
       {activeTopics.length ? (
         <Scatter data={data} options={options} plugins={[matrixPlugin]} />
       ) : (
-        <div className="empty-chart">尚無有效填答資料，完成問卷後將自動產生重大性矩陣。</div>
+        <div className="empty-chart">尚無專家重大性評估資料，完成填答後會顯示矩陣圖。</div>
       )}
     </div>
   );

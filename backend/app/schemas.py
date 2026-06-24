@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 Score1To5 = int
@@ -9,11 +9,13 @@ Score1To5 = int
 
 class StakeholderGroupOut(BaseModel):
     id: int
+    code: str = ""
     name: str
     scope: str
     description: str | None = None
     weight: float = 1.0
     is_active: bool = True
+    sort_order: int = 0
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -22,19 +24,23 @@ class StakeholderGroupAdminOut(StakeholderGroupOut):
 
 
 class StakeholderGroupCreate(BaseModel):
+    code: str | None = Field(default=None, max_length=40)
     name: str = Field(min_length=1, max_length=80)
-    scope: Literal["internal", "external"]
+    scope: Literal["internal", "external"] = "internal"
     description: str | None = Field(default=None, max_length=255)
     weight: float = Field(default=1.0, ge=0, le=10)
     is_active: bool = True
+    sort_order: int = 0
 
 
 class StakeholderGroupUpdate(BaseModel):
+    code: str | None = Field(default=None, max_length=40)
     name: str | None = Field(default=None, min_length=1, max_length=80)
     scope: Literal["internal", "external"] | None = None
     description: str | None = Field(default=None, max_length=255)
     weight: float | None = Field(default=None, ge=0, le=10)
     is_active: bool | None = None
+    sort_order: int | None = None
 
 
 AdminRole = Literal["super_admin", "admin", "reviewer"]
@@ -54,8 +60,15 @@ class UserAdminOut(BaseModel):
     email: EmailStr
     name: str
     role: Literal["super_admin", "admin", "reviewer", "respondent"]
-    stakeholder_group_id: int
+    stakeholder_group_id: int | None = None
     is_active: bool
+    last_login_at: datetime | None = None
+    failed_login_count: int = 0
+    locked_until: datetime | None = None
+    force_password_change: bool = False
+    created_by_user_id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -97,10 +110,12 @@ class TokenOut(BaseModel):
 class TopicOut(BaseModel):
     id: int
     code: str
+    topic_code: str = ""
     category: str
     name_zh: str
     name_en: str
     description: str | None
+    scenario_description: str | None = None
     gri_mapping: str | None = None
     sdgs_mapping: str | None = None
     responsible_unit: str | None = None
@@ -116,10 +131,12 @@ class TopicAdminOut(TopicOut):
 
 class TopicCreate(BaseModel):
     code: str = Field(min_length=1, max_length=20)
+    topic_code: str | None = Field(default=None, max_length=20)
     category: Literal["E", "S", "G"]
     name_zh: str = Field(min_length=1, max_length=100)
     name_en: str = Field(min_length=1, max_length=120)
     description: str | None = None
+    scenario_description: str | None = None
     gri_mapping: str | None = Field(default=None, max_length=255)
     sdgs_mapping: str | None = Field(default=None, max_length=255)
     responsible_unit: str | None = Field(default=None, max_length=120)
@@ -131,10 +148,12 @@ class TopicCreate(BaseModel):
 
 class TopicUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=20)
+    topic_code: str | None = Field(default=None, max_length=20)
     category: Literal["E", "S", "G"] | None = None
     name_zh: str | None = Field(default=None, min_length=1, max_length=100)
     name_en: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
+    scenario_description: str | None = None
     gri_mapping: str | None = Field(default=None, max_length=255)
     sdgs_mapping: str | None = Field(default=None, max_length=255)
     responsible_unit: str | None = Field(default=None, max_length=120)
@@ -147,54 +166,96 @@ class TopicUpdate(BaseModel):
 class CampaignOut(BaseModel):
     id: int
     title: str
+    name: str = ""
     year: int
+    survey_type: Literal["concern", "expert_materiality"] = "concern"
     status: str
     is_open: bool = True
+    is_active: bool = True
     impact_threshold: float
     financial_threshold: float
+    materiality_threshold: float = 3.5
+    allow_public_response: bool = True
+    require_invitation_code: bool = False
+    description: str | None = None
+    privacy_notice: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class CampaignAdminOut(CampaignOut):
     starts_at: datetime | None = None
+    start_date: datetime | None = None
     ends_at: datetime | None = None
+    end_date: datetime | None = None
     response_count: int = 0
     invitation_count: int = 0
     used_invitation_count: int = 0
 
 
 class CampaignCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, max_length=160)
+    name: str | None = Field(default=None, max_length=160)
     year: int = Field(ge=2000, le=2100)
+    survey_type: Literal["concern", "expert_materiality"] = "concern"
     status: Literal["draft", "active", "closed"] = "draft"
     starts_at: datetime | None = None
+    start_date: datetime | None = None
     ends_at: datetime | None = None
+    end_date: datetime | None = None
     is_open: bool = False
+    is_active: bool = True
     impact_threshold: float = Field(default=3.5, ge=1, le=5)
     financial_threshold: float = Field(default=3.5, ge=1, le=5)
+    materiality_threshold: float = Field(default=3.5, ge=1, le=5)
+    allow_public_response: bool = True
+    require_invitation_code: bool = False
+    description: str | None = None
+    privacy_notice: str | None = None
+
+    @model_validator(mode="after")
+    def require_name_or_title(self):
+        if not self.name and not self.title:
+            raise ValueError("name or title is required")
+        return self
 
 
 class CampaignUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
+    name: str | None = Field(default=None, min_length=1, max_length=160)
     year: int | None = Field(default=None, ge=2000, le=2100)
+    survey_type: Literal["concern", "expert_materiality"] | None = None
     status: Literal["draft", "active", "closed"] | None = None
     starts_at: datetime | None = None
+    start_date: datetime | None = None
     ends_at: datetime | None = None
+    end_date: datetime | None = None
     is_open: bool | None = None
+    is_active: bool | None = None
     impact_threshold: float | None = Field(default=None, ge=1, le=5)
     financial_threshold: float | None = Field(default=None, ge=1, le=5)
+    materiality_threshold: float | None = Field(default=None, ge=1, le=5)
+    allow_public_response: bool | None = None
+    require_invitation_code: bool | None = None
+    description: str | None = None
+    privacy_notice: str | None = None
 
 
 class InvitationCodeOut(BaseModel):
     id: int
     campaign_id: int
-    code: str
+    code: str | None = None
+    code_prefix: str
     stakeholder_group_id: int
     stakeholder_group_name: str
     label: str | None = None
-    survey_type: str = "expert"
+    evaluator_role: str | None = None
+    survey_type: str = "expert_materiality"
+    expires_at: datetime | None = None
+    max_uses: int = 1
+    used_count: int = 0
     is_active: bool
     used_at: datetime | None = None
+    revoked_at: datetime | None = None
     created_at: datetime
 
 
@@ -202,6 +263,9 @@ class InvitationGenerateRequest(BaseModel):
     stakeholder_group_id: int
     count: int = Field(default=1, ge=1, le=500)
     label_prefix: str | None = Field(default=None, max_length=80)
+    evaluator_role: str | None = Field(default=None, max_length=80)
+    expires_at: datetime | None = None
+    max_uses: int = Field(default=1, ge=1, le=10)
 
 
 class ScoreInput(BaseModel):
@@ -222,14 +286,6 @@ class ScoreInput(BaseModel):
     operational_resilience_score: int | None = Field(default=None, ge=1, le=5)
     financial_likelihood_score: int | None = Field(default=None, ge=1, le=5)
     financial_score: float | None = Field(default=None, ge=1, le=5)
-
-    @field_validator("remediability_score")
-    @classmethod
-    def remediability_only_for_negative(cls, value: int | None, info):
-        if info.data.get("positive_or_negative") == "negative" and value is None:
-            return 3
-        return value
-
 
 class SurveySubmit(BaseModel):
     campaign_id: int
@@ -277,6 +333,12 @@ class ConcernSurveySubmit(BaseModel):
 
 class ExpertScoreInput(BaseModel):
     topic_id: int
+    positive_likelihood_score: int | None = Field(default=None, ge=1, le=5)
+    positive_impact_magnitude_score: int | None = Field(default=None, ge=1, le=5)
+    negative_likelihood_score: int | None = Field(default=None, ge=1, le=5)
+    negative_impact_magnitude_score: int | None = Field(default=None, ge=1, le=5)
+    enrollment_revenue_score: int | None = Field(default=None, ge=1, le=5)
+    legal_responsibility_score: int | None = Field(default=None, ge=1, le=5)
     impact_likelihood_score: int | None = Field(default=None, ge=1, le=5)
     positive_impact_score: int | None = Field(default=None, ge=1, le=5)
     negative_impact_score: int | None = Field(default=None, ge=1, le=5)
@@ -312,6 +374,13 @@ class AuditLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AuditLogPageOut(BaseModel):
+    items: list[AuditLogOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class TopicMetric(BaseModel):
     topic_id: int
     code: str
@@ -322,6 +391,14 @@ class TopicMetric(BaseModel):
     financial: float
     weighted_impact: float
     weighted_financial: float
+    concern_score: float = 0
+    concern_response_count: int = 0
+    impact_materiality_score: float = 0
+    financial_materiality_score: float = 0
+    unknown_ratio: float = 0
+    is_final_material_topic: bool = False
+    final_topic_reason: str | None = None
+    manually_adjusted: bool = False
     response_count: int
     quadrant: str
 
@@ -343,6 +420,17 @@ class StakeholderTopicMetric(BaseModel):
     response_count: int
 
 
+class RoleMetric(BaseModel):
+    evaluator_role: str
+    count: int
+
+
+class MaterialTopicOverrideIn(BaseModel):
+    campaign_id: int | None = None
+    is_material: bool
+    reason: str = Field(min_length=3, max_length=1000)
+
+
 class KeywordMetric(BaseModel):
     keyword: str
     count: int
@@ -351,8 +439,11 @@ class KeywordMetric(BaseModel):
 class AIAnalysisContent(BaseModel):
     zh_summary: str
     en_summary: str
+    concern_result_summary: str = ""
+    impact_result_summary: str = ""
+    financial_result_summary: str = ""
     material_topic_ranking: str
-    stakeholder_difference_analysis: str
+    stakeholder_difference_analysis: str = ""
     management_recommendations: str
     report_paragraph_zh: str
     report_paragraph_en: str
@@ -381,16 +472,26 @@ class AIAnalysisGenerateRequest(BaseModel):
 
 class MaterialityReportRequest(BaseModel):
     campaign_id: int | None = None
-    matrix_png_base64: str | None = Field(default=None, max_length=8_000_000)
+    matrix_png_base64: str | None = Field(default=None, max_length=2_000_000)
 
 
 class AnalyticsOut(BaseModel):
     campaign: CampaignOut
+    concern_campaign: CampaignOut | None = None
+    expert_campaign: CampaignOut | None = None
     response_count: int
+    concern_response_count: int = 0
+    expert_response_count: int = 0
+    issued_invitation_count: int = 0
+    used_invitation_count: int = 0
     stakeholder_count: int
     completion_rate: float
     topics: list[TopicMetric]
     stakeholders: list[StakeholderMetric]
+    evaluator_roles: list[RoleMetric] = []
+    final_material_topics: list[TopicMetric] = []
+    unknown_ratio: float = 0
+    threshold: float = 3.5
     stakeholder_topics: list[StakeholderTopicMetric]
     keywords: list[KeywordMetric]
     ai_analysis: AIAnalysisContent

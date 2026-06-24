@@ -24,7 +24,7 @@ export function ReportAdmin({ token }: { token: string }) {
       setVersions(nextVersions);
       setActive(nextVersions.find((version) => version.is_active) || null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "讀取 AI 分析資料失敗。");
+      setError(caught instanceof Error ? caught.message : "無法載入 AI 分析資料。");
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ export function ReportAdmin({ token }: { token: string }) {
     }
   }
 
-  if (loading) return <div className="page-loader"><RefreshCw className="spin" /> 正在讀取報告草稿...</div>;
+  if (loading) return <div className="page-loader"><RefreshCw className="spin" /> 載入報告管理中...</div>;
   if (!analytics) return <div className="error-state">{error}<button onClick={load}>重新讀取</button></div>;
 
   const content = active?.content || analytics.ai_analysis;
@@ -66,8 +66,8 @@ export function ReportAdmin({ token }: { token: string }) {
       <header className="page-header">
         <div>
           <span className="eyebrow green">AI + GRI DRAFT</span>
-          <h1>AI 分析與 GRI 章節草稿</h1>
-          <p>僅使用彙整後數據與去識別化開放題；所有輸出均標示為 AI 草稿，需人工審閱。</p>
+          <h1>報告管理與 AI 草稿</h1>
+          <p>AI 僅使用彙整後與去識別化資料；所有內容需由管理者人工審閱後使用。</p>
         </div>
         <div className="header-actions">
           <button className="button secondary" onClick={load}><RefreshCw size={16} />重新整理</button>
@@ -75,7 +75,7 @@ export function ReportAdmin({ token }: { token: string }) {
             <Sparkles size={17} /> {generating ? "產生中..." : "重新產生 AI 草稿"}
           </button>
           <button className="button primary" onClick={() => downloadReport(token, analytics.campaign.id)}>
-            <FileText size={17} /> 下載 Word
+            <FileText size={17} />下載 Word
           </button>
         </div>
       </header>
@@ -90,31 +90,24 @@ export function ReportAdmin({ token }: { token: string }) {
         </article>
         <article className="metric-card">
           <span className="metric-icon sand"><FileText /></span>
-          <div><span>有效回收</span><strong>{analytics.response_count}</strong></div>
-          <small>{analytics.stakeholder_count} 類利害關係人</small>
+          <div><span>最終重大主題</span><strong>{analytics.final_material_topics.length}</strong></div>
+          <small>{analytics.ai_analysis.disclaimer}</small>
         </article>
       </section>
 
       <section className="dashboard-grid">
-        <article className="panel ai-panel">
-          <div className="panel-heading"><div><h2>中文摘要</h2><p>{content.disclaimer}</p></div></div>
-          <div className="ai-copy"><Sparkles size={17} /><p>{content.zh_summary}</p></div>
-        </article>
-        <article className="panel ai-panel">
-          <div className="panel-heading"><div><h2>English Summary</h2><p>{content.disclaimer}</p></div></div>
-          <div className="ai-copy"><Sparkles size={17} /><p>{content.en_summary}</p></div>
-        </article>
+        <AIBlock title="中文摘要" text={content.zh_summary} disclaimer={content.disclaimer} />
+        <AIBlock title="English Summary" text={content.en_summary} disclaimer={content.disclaimer} />
+        <AIBlock title="關注度調查結果說明" text={content.concern_result_summary} disclaimer={content.disclaimer} />
+        <AIBlock title="衝擊重大性評估結果說明" text={content.impact_result_summary} disclaimer={content.disclaimer} />
+        <AIBlock title="財務重大性評估結果說明" text={content.financial_result_summary} disclaimer={content.disclaimer} />
+        <AIBlock title="重大主題排序說明" text={content.material_topic_ranking} disclaimer={content.disclaimer} />
+        <AIBlock title="管理建議" text={content.management_recommendations} disclaimer={content.disclaimer} />
+        <AIBlock title="報告書可用段落" text={content.report_paragraph_zh} disclaimer={content.disclaimer} />
       </section>
 
       <section className="panel topic-panel">
-        <div className="panel-heading"><div><h2>重大主題排序與分群差異</h2><p>可直接貼入報告書前，仍需人工審閱。</p></div></div>
-        <div className="ai-copy"><p>{content.material_topic_ranking}</p></div>
-        <div className="ai-copy"><p>{content.stakeholder_difference_analysis}</p></div>
-        <div className="ai-copy"><p>{content.management_recommendations}</p></div>
-      </section>
-
-      <section className="panel topic-panel">
-        <div className="panel-heading"><div><h2>GRI 章節草稿</h2><p>GRI 3-1、3-2、3-3 報告書段落。</p></div></div>
+        <div className="panel-heading"><div><h2>GRI 章節草稿</h2><p>{content.disclaimer}</p></div></div>
         <h3>GRI 3-1 Process to determine material topics</h3>
         <p>{content.gri_3_1}</p>
         <h3>GRI 3-2 List of material topics</h3>
@@ -124,7 +117,7 @@ export function ReportAdmin({ token }: { token: string }) {
       </section>
 
       <section className="panel topic-panel">
-        <div className="panel-heading"><div><h2>AI 版本紀錄</h2><p>每次重新產生會建立新版本並停用舊 active 版本。</p></div></div>
+        <div className="panel-heading"><div><h2>AI 版本紀錄</h2><p>重新產生會封存舊 active 版本。</p></div></div>
         <div className="topic-table-wrap">
           <table className="topic-table">
             <thead><tr><th>版本</th><th>模型</th><th>Prompt</th><th>狀態</th><th>建立時間</th></tr></thead>
@@ -137,13 +130,20 @@ export function ReportAdmin({ token }: { token: string }) {
                   <td>{version.is_active ? "active" : "archived"}</td>
                   <td>{new Date(version.created_at).toLocaleString()}</td>
                 </tr>
-              )) : (
-                <tr><td colSpan={5}>尚未建立 AI 分析版本。</td></tr>
-              )}
+              )) : <tr><td colSpan={5}>尚無 AI 版本。</td></tr>}
             </tbody>
           </table>
         </div>
       </section>
     </div>
+  );
+}
+
+function AIBlock({ title, text, disclaimer }: { title: string; text: string; disclaimer: string }) {
+  return (
+    <article className="panel ai-panel">
+      <div className="panel-heading"><div><h2>{title}</h2><p>{disclaimer}</p></div></div>
+      <div className="ai-copy"><Sparkles size={17} /><p>{text}</p></div>
+    </article>
   );
 }

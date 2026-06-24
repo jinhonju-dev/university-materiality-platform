@@ -39,6 +39,9 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r backend/requirements-dev.txt
 
+      - name: Backend dependency security scan
+        run: pip-audit -r backend/requirements.txt
+
       - name: Backend tests
         run: pytest
 
@@ -54,11 +57,12 @@ jobs:
         working-directory: frontend
         run: npm test
 
-      - name: Build static demo
+      - name: Build GitHub Pages frontend
         working-directory: frontend
         env:
-          NEXT_PUBLIC_DEMO_MODE: "true"
-          PAGES_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_DEMO_MODE: ${{ vars.NEXT_PUBLIC_DEMO_MODE || 'false' }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || 'https://university-materiality-api.onrender.com' }}
+          PAGES_BASE_PATH: /university-materiality-platform
         run: npm run build
 
       - name: Setup Pages

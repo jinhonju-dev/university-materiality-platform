@@ -36,7 +36,7 @@ def set_cell_text(cell, text: str, bold: bool = False) -> None:
     cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
 
-def add_table(document: Document, headers: list[str], rows: list[list[str]], widths: list[float] | None = None) -> None:
+def add_table(document: Document, headers: list[str], rows: list[list], widths: list[float] | None = None) -> None:
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -55,51 +55,25 @@ def add_table(document: Document, headers: list[str], rows: list[list[str]], wid
                 cells[index].width = Inches(widths[index])
 
 
-def add_paragraph(document: Document, text: str, style: str | None = None):
-    paragraph = document.add_paragraph(style=style)
+def add_paragraph(document: Document, text: str) -> None:
+    paragraph = document.add_paragraph()
     run = paragraph.add_run(text)
     set_east_asia_font(run)
-    return paragraph
 
 
-def add_heading(document: Document, text: str, level: int = 1):
+def add_heading(document: Document, text: str, level: int = 1) -> None:
     paragraph = document.add_heading(level=level)
     run = paragraph.add_run(text)
     set_east_asia_font(run)
     run.font.color.rgb = RGBColor(24, 83, 61)
-    return paragraph
-
-
-def score(value: float) -> str:
-    return f"{value:.2f}"
-
-
-def topic_rank(data: dict) -> list[dict]:
-    return sorted(
-        data["topics"],
-        key=lambda item: (item["weighted_impact"] + item["weighted_financial"], item["impact"] + item["financial"]),
-        reverse=True,
-    )
-
-
-def material_topics(data: dict) -> list[dict]:
-    return [topic for topic in topic_rank(data) if topic["quadrant"] == "重大主題"]
-
-
-def normalize_matrix_image(matrix_image: bytes | None, data: dict) -> BytesIO:
-    if matrix_image and matrix_image.startswith(b"\x89PNG\r\n\x1a\n"):
-        output = BytesIO(matrix_image)
-        output.seek(0)
-        return output
-    return create_matrix_png(data)
 
 
 def configure_document(document: Document) -> None:
     section = document.sections[0]
-    section.top_margin = Inches(0.72)
-    section.bottom_margin = Inches(0.72)
-    section.left_margin = Inches(0.78)
-    section.right_margin = Inches(0.78)
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
+    section.left_margin = Inches(0.8)
+    section.right_margin = Inches(0.8)
     styles = document.styles
     styles["Normal"].font.name = "Microsoft JhengHei"
     styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft JhengHei")
@@ -109,10 +83,22 @@ def configure_document(document: Document) -> None:
         styles[name]._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft JhengHei")
 
 
+def score(value: float) -> str:
+    return f"{float(value or 0):.2f}"
+
+
+def matrix_stream(matrix_image: bytes | None, data: dict) -> BytesIO:
+    if matrix_image and matrix_image.startswith(b"\x89PNG\r\n\x1a\n"):
+        output = BytesIO(matrix_image)
+        output.seek(0)
+        return output
+    return create_matrix_png(data)
+
+
 def add_cover(document: Document, data: dict) -> None:
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run("大學永續報告書\n雙重重大性評估報告")
+    run = title.add_run("雙重重大性評估報告")
     set_east_asia_font(run)
     run.bold = True
     run.font.size = Pt(24)
@@ -120,131 +106,109 @@ def add_cover(document: Document, data: dict) -> None:
 
     subtitle = document.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = subtitle.add_run(f"{data['campaign'].year} 年度｜{data['campaign'].title}")
+    run = subtitle.add_run(f"{data['campaign'].year} 年度")
     set_east_asia_font(run)
     run.font.size = Pt(13)
-    run.font.color.rgb = RGBColor(90, 110, 100)
 
-    document.add_paragraph()
     add_table(
         document,
-        ["項目", "內容"],
+        ["項目", "數值"],
         [
-            ["有效回收數", f"{data['response_count']} 份"],
-            ["涵蓋利害關係人類別", f"{data['stakeholder_count']} 類"],
-            ["衝擊重大性門檻", f"{data['campaign'].impact_threshold:.1f}"],
-            ["財務重大性門檻", f"{data['campaign'].financial_threshold:.1f}"],
-            ["文件狀態", data["ai_analysis"]["disclaimer"]],
+            ["關注度調查回收", data["concern_response_count"]],
+            ["專家重大性評估回收", data["expert_response_count"]],
+            ["重大性門檻", score(data["threshold"])],
+            ["最終重大主題數", len(data["final_material_topics"])],
+            ["AI 使用聲明", data["ai_analysis"]["disclaimer"]],
         ],
-        widths=[1.8, 4.8],
+        widths=[2.0, 4.6],
     )
     document.add_page_break()
 
 
 def add_stakeholder_section(document: Document, data: dict) -> None:
-    add_heading(document, "2.3 利害關係人溝通", 1)
-    add_paragraph(
-        document,
-        (
-            f"本次雙重重大性評估共回收 {data['response_count']} 份有效問卷，"
-            f"涵蓋 {data['stakeholder_count']} 類利害關係人。問卷結果同時保留未加權平均、"
-            "利害關係人權重與分群統計，以支持永續報告書揭露與後續佐證。"
-        ),
-    )
-    rows = [[item["name"], str(item["count"]), f"{item['weight']:.2f}"] for item in data["stakeholders"]]
-    add_table(document, ["利害關係人類別", "回收數", "權重"], rows, widths=[3.0, 1.2, 1.2])
+    add_heading(document, "1. 利害關係人溝通")
+    add_paragraph(document, f"本次關注度調查共回收 {data['concern_response_count']} 份，涵蓋 {data['stakeholder_count']} 類利害關係人。")
+    add_table(document, ["利害關係人類別", "回收數", "權重"], [[item["name"], item["count"], f"{item['weight']:.2f}"] for item in data["stakeholders"]])
 
 
-def add_process_section(document: Document, data: dict) -> None:
-    add_heading(document, "2.4 重大主題鑑別流程", 1)
-    add_paragraph(document, data["ai_analysis"]["gri_3_1"])
-    add_table(
-        document,
-        ["步驟", "說明", "佐證資料"],
-        [
-            ["1. 議題庫建立", "依 E/S/G、GRI、SDGs、責任單位與管理方針建立議題清單。", "議題庫版本、啟用狀態"],
-            ["2. 利害關係人參與", "透過登入填答或匿名邀請碼蒐集評分與開放意見。", "問卷活動、邀請碼、回收數"],
-            ["3. 雙重重大性計算", "分別計算衝擊重大性與財務重大性，並保留未加權與加權結果。", "原始填答、分群平均、權重設定"],
-            ["4. 重大性判定", "依年度門檻分為重大主題、揭露主題、風險主題與觀察主題。", "重大性矩陣、門檻設定"],
-        ],
-        widths=[1.4, 3.6, 2.0],
-    )
+def add_method_section(document: Document, data: dict) -> None:
+    add_heading(document, "2. 問卷方法說明")
+    add_paragraph(document, "本平台採兩階段問卷架構：第一階段為利害關係人關注度調查，第二階段為主管或專家填答之雙重重大性評估。")
+    add_paragraph(document, "關注度分數作為排序與利害關係人關注佐證，不作為唯一重大性判定條件。最終重大主題依衝擊重大性或財務重大性任一達門檻判定，管理者可於填寫理由後手動調整。")
 
 
-def add_result_section(document: Document, data: dict, matrix_image: BytesIO) -> None:
-    add_heading(document, "2.5 雙重重大性評估結果", 1)
-    add_paragraph(document, data["ai_analysis"]["report_paragraph_zh"])
-    document.add_picture(matrix_image, width=Inches(6.4))
+def add_concern_section(document: Document, data: dict) -> None:
+    add_heading(document, "3. 關注度調查方法與結果")
+    add_paragraph(document, data["ai_analysis"].get("concern_result_summary", ""))
+    rows = [[topic["code"], topic["name"], topic["category"], score(topic["concern_score"])] for topic in sorted(data["topics"], key=lambda item: item["concern_score"], reverse=True)]
+    add_table(document, ["代碼", "議題", "類別", "Concern Score"], rows)
+
+
+def add_impact_section(document: Document, data: dict) -> None:
+    add_heading(document, "4. 衝擊重大性評估方法與結果")
+    add_paragraph(document, data["ai_analysis"].get("impact_result_summary", ""))
+    rows = [[topic["code"], topic["name"], score(topic["impact_materiality_score"]), topic["quadrant"]] for topic in sorted(data["topics"], key=lambda item: item["impact_materiality_score"], reverse=True)]
+    add_table(document, ["代碼", "議題", "Impact Materiality", "象限"], rows)
+
+
+def add_financial_section(document: Document, data: dict) -> None:
+    add_heading(document, "5. 財務重大性評估方法與結果")
+    add_paragraph(document, data["ai_analysis"].get("financial_result_summary", ""))
+    rows = [[topic["code"], topic["name"], score(topic["financial_materiality_score"]), topic["quadrant"]] for topic in sorted(data["topics"], key=lambda item: item["financial_materiality_score"], reverse=True)]
+    add_table(document, ["代碼", "議題", "Financial Materiality", "象限"], rows)
+
+
+def add_matrix_section(document: Document, data: dict, image: BytesIO) -> None:
+    add_heading(document, "6. 雙重重大性矩陣")
+    add_paragraph(document, "矩陣 X 軸為財務重大性，Y 軸為衝擊重大性；點大小代表關注度調查平均分數，顏色代表 E/S/G 類別。")
+    document.add_picture(image, width=Inches(6.4))
     document.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    caption = document.add_paragraph("圖 2.5-1 雙重重大性矩陣")
-    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    caption.runs[0].font.size = Pt(9)
 
+
+def add_final_topic_section(document: Document, data: dict) -> None:
+    add_heading(document, "7. 最終重大主題清單")
     rows = [
         [
-            f"{topic['code']} {topic['name']}",
-            topic["category"],
-            score(topic["impact"]),
-            score(topic["financial"]),
-            score(topic["weighted_impact"]),
-            score(topic["weighted_financial"]),
-            str(topic["response_count"]),
-            topic["quadrant"],
+            topic["code"],
+            topic["name"],
+            score(topic["impact_materiality_score"]),
+            score(topic["financial_materiality_score"]),
+            score(topic["concern_score"]),
+            topic["final_topic_reason"] or "",
         ]
-        for topic in topic_rank(data)
+        for topic in data["final_material_topics"]
     ]
-    add_table(
-        document,
-        ["議題", "E/S/G", "衝擊", "財務", "加權衝擊", "加權財務", "樣本", "判定"],
-        rows,
-        widths=[2.0, 0.7, 0.7, 0.7, 0.8, 0.8, 0.6, 1.0],
-    )
-
-    add_heading(document, "AI 分析摘要", 2)
-    for field in ["zh_summary", "en_summary", "material_topic_ranking", "stakeholder_difference_analysis", "management_recommendations"]:
-        add_paragraph(document, data["ai_analysis"][field])
-
-
-def add_management_section(document: Document, data: dict) -> None:
-    add_heading(document, "2.6 重大主題管理方針", 1)
-    add_paragraph(document, data["ai_analysis"]["management_recommendations"])
-    selected = material_topics(data) or topic_rank(data)[:5]
-    rows = [
-        [
-            f"{topic['code']} {topic['name']}",
-            topic["quadrant"],
-            "請責任單位確認管理方針、KPI、年度目標與追蹤機制。",
-        ]
-        for topic in selected
-    ]
-    add_table(document, ["重大議題", "判定", "管理建議"], rows, widths=[2.3, 1.2, 3.5])
+    add_table(document, ["代碼", "議題", "Impact", "Financial", "Concern", "判定理由"], rows)
 
 
 def add_gri_sections(document: Document, data: dict) -> None:
-    add_heading(document, "GRI 3-1 Process to determine material topics", 1)
+    add_heading(document, "8. GRI 3-1")
     add_paragraph(document, data["ai_analysis"]["gri_3_1"])
-    add_heading(document, "GRI 3-2 List of material topics", 1)
+    add_heading(document, "9. GRI 3-2")
     add_paragraph(document, data["ai_analysis"]["gri_3_2"])
-    add_heading(document, "GRI 3-3 Management of material topics", 1)
+    add_heading(document, "10. GRI 3-3")
     add_paragraph(document, data["ai_analysis"]["gri_3_3"])
 
 
 def add_appendix(document: Document, data: dict) -> None:
-    add_heading(document, "附錄：問卷方法、樣本數、權重、評分尺度、門檻設定", 1)
+    add_heading(document, "11. 附錄：問卷題目、評分尺度、樣本數、門檻設定、不清楚比例")
     add_table(
         document,
-        ["項目", "設定"],
+        ["項目", "說明"],
         [
-            ["評分尺度", "1 = 極低、2 = 低、3 = 中、4 = 高、5 = 極高"],
-            ["衝擊重大性", "衝擊規模、衝擊範圍、可補救性、發生可能性之彙整分數"],
-            ["財務重大性", "財務影響程度、營運韌性影響、發生可能性之彙整分數"],
-            ["衝擊門檻", f"{data['campaign'].impact_threshold:.1f}"],
-            ["財務門檻", f"{data['campaign'].financial_threshold:.1f}"],
-            ["樣本數", f"{data['response_count']} 份有效問卷"],
-            ["AI 使用聲明", data["ai_analysis"]["disclaimer"]],
+            ["關注度評分", "1 = 極低，2 = 低，3 = 中等，4 = 高，5 = 極高"],
+            ["專家評估評分", "1 = 極低，2 = 低，3 = 中等，4 = 高，5 = 極高／已發生；不清楚以 null 儲存，不納入平均"],
+            ["Impact score", "occurrence_likelihood_score × impact_magnitude_score ÷ 5，正負衝擊取較高者"],
+            ["Financial score", "financial_likelihood_score × 五項財務影響有效平均 ÷ 5"],
+            ["關注度樣本數", data["concern_response_count"]],
+            ["專家評估樣本數", data["expert_response_count"]],
+            ["重大性門檻", score(data["threshold"])],
+            ["整體不清楚比例", f"{data['unknown_ratio']:.1f}%"],
         ],
-        widths=[1.8, 4.8],
+        widths=[2.0, 4.8],
     )
+    rows = [[topic["code"], topic["name"], f"{topic['unknown_ratio']:.1f}%"] for topic in data["topics"]]
+    add_table(document, ["代碼", "議題", "不清楚比例"], rows)
 
 
 def create_materiality_report(data: dict, matrix_image: bytes | None = None) -> BytesIO:
@@ -257,12 +221,14 @@ def create_materiality_report(data: dict, matrix_image: bytes | None = None) -> 
     core.subject = "Stakeholder engagement and material topics"
     core.comments = data["ai_analysis"]["disclaimer"]
 
-    matrix_stream = normalize_matrix_image(matrix_image, data)
     add_cover(document, data)
     add_stakeholder_section(document, data)
-    add_process_section(document, data)
-    add_result_section(document, data, matrix_stream)
-    add_management_section(document, data)
+    add_method_section(document, data)
+    add_concern_section(document, data)
+    add_impact_section(document, data)
+    add_financial_section(document, data)
+    add_matrix_section(document, data, matrix_stream(matrix_image, data))
+    add_final_topic_section(document, data)
     add_gri_sections(document, data)
     add_appendix(document, data)
 

@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
 
 const basePath = process.env.PAGES_BASE_PATH || "";
+const assetPrefix = basePath ? `${basePath.replace(/\/$/, "")}/` : "";
 
 const nextConfig: NextConfig = {
-  output: process.env.NEXT_PUBLIC_DEMO_MODE === "true" ? "export" : "standalone",
+  output: "export",
   basePath,
-  assetPrefix: basePath,
+  assetPrefix,
   trailingSlash: true,
 };
 

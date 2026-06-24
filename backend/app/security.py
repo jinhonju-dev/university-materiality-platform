@@ -41,6 +41,12 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+def hash_invitation_code(code: str) -> str:
+    settings = get_settings()
+    normalized = code.strip().upper()
+    return hmac.new(settings.secret_key.encode(), normalized.encode(), hashlib.sha256).hexdigest()
+
+
 def create_access_token(user_id: int | None = None, invitation_code_id: int | None = None) -> str:
     settings = get_settings()
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
@@ -104,6 +110,7 @@ def get_current_principal(
             select(InvitationCode).where(
                 InvitationCode.id == subject_id,
                 InvitationCode.is_active.is_(True),
+                InvitationCode.revoked_at.is_(None),
             )
         )
         if invitation:

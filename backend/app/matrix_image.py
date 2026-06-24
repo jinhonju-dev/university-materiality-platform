@@ -177,25 +177,27 @@ def create_matrix_png(data: dict, width: int = 1200, height: int = 800) -> Bytes
         _text(pixels, width, height, x - 5, plot_bottom + 18, str(tick), text, scale=2)
         _text(pixels, width, height, plot_left - 36, y - 7, str(tick), text, scale=2)
 
-    campaign = data["campaign"]
-    tx = px(campaign.financial_threshold)
-    ty = py(campaign.impact_threshold)
+    threshold_value = data.get("threshold") or getattr(data["campaign"], "materiality_threshold", 3.5) or 3.5
+    tx = px(threshold_value)
+    ty = py(threshold_value)
     for y in range(plot_top, plot_bottom, 18):
         _line(pixels, width, height, tx, y, tx, min(y + 9, plot_bottom), threshold)
     for x in range(plot_left, plot_right, 18):
         _line(pixels, width, height, x, ty, min(x + 9, plot_right), ty, threshold)
 
-    _text(pixels, width, height, plot_left + 20, plot_top + 18, "DISCLOSURE", text, scale=2)
-    _text(pixels, width, height, tx + 20, plot_top + 18, "MATERIAL", text, scale=2)
+    _text(pixels, width, height, plot_left + 20, plot_top + 18, "IMPACT", text, scale=2)
+    _text(pixels, width, height, tx + 20, plot_top + 18, "CORE", text, scale=2)
     _text(pixels, width, height, plot_left + 20, plot_bottom - 38, "WATCH", text, scale=2)
-    _text(pixels, width, height, tx + 20, plot_bottom - 38, "RISK", text, scale=2)
+    _text(pixels, width, height, tx + 20, plot_bottom - 38, "FINANCIAL", text, scale=2)
 
     active_topics = [topic for topic in data["topics"] if topic["response_count"] > 0]
     for index, topic in enumerate(active_topics):
-        x = px(topic["financial"])
-        y = py(topic["impact"])
+        x = px(topic.get("financial_materiality_score", topic["financial"]))
+        y = py(topic.get("impact_materiality_score", topic["impact"]))
         color = CATEGORY_COLORS.get(topic["category"], (77, 106, 90))
-        _circle(pixels, width, height, x, y, 13, color, (255, 255, 255))
+        radius = max(8, min(20, int(6 + float(topic.get("concern_score", 3)) * 2.2)))
+        border = (23, 40, 31) if topic.get("is_final_material_topic") else (255, 255, 255)
+        _circle(pixels, width, height, x, y, radius, color, border)
         label_y = y - 34 if index % 2 else y + 20
         _text(pixels, width, height, min(x + 16, plot_right - 70), max(plot_top + 4, label_y), topic["code"], text, scale=2)
 
