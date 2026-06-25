@@ -6,9 +6,9 @@ function apiRoot() {
   return RAW_API_URL.replace(/\/+$/, "").replace(/\/api$/, "");
 }
 
-function apiUrl(path: string) {
+export function apiUrl(path: string) {
   if (!RAW_API_URL) {
-    throw new ApiError("NEXT_PUBLIC_API_URL is not configured for Production Mode.", 500);
+    throw new ApiError("NEXT_PUBLIC_API_URL is not configured for Production Mode.", 500, undefined, "config");
   }
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   if (normalizedPath === "/health") return `${apiRoot()}/health`;
@@ -19,9 +19,47 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public url?: string,
+    public kind: "http" | "network" | "config" = "http",
   ) {
     super(message);
   }
+
+  get isAuthExpired() {
+    return this.status === 401;
+  }
+
+  get isNetworkOrCorsError() {
+    return this.kind === "network";
+  }
+}
+
+function networkApiError(caught: unknown, url: string) {
+  const original = caught instanceof Error ? caught.message : String(caught);
+  return new ApiError(
+    [
+      "Network request failed.",
+      `API URL: ${url}`,
+      "HTTP status: unavailable",
+      "Likely cause: CORS blocked the request, the Render service is sleeping/down, or the browser cannot reach the API.",
+      `Original error: ${original}`,
+    ].join("\n"),
+    0,
+    url,
+    "network",
+  );
+}
+
+function httpApiError(message: string, status: number, url: string) {
+  const details = [
+    message,
+    `API URL: ${url}`,
+    `HTTP status: ${status}`,
+  ];
+  if (status === 401) details.push("Likely cause: token expired or login session is invalid. Please log out and sign in again.");
+  if (status === 403) details.push("Likely cause: this account does not have permission for the requested admin API.");
+  if (status >= 500) details.push("Likely cause: backend server error. Check Render logs.");
+  return new ApiError(details.join("\n"), status, url, "http");
 }
 
 export async function api<T>(
@@ -33,7 +71,7 @@ export async function api<T>(
     if (path === "/auth/login") {
       const credentials = JSON.parse(String(options.body || "{}"));
       const result = demoLogin(credentials.email, credentials.password);
-      if (!result) throw new ApiError("帳號或密碼不正確。", 401);
+      if (!result) throw new ApiError("Demo login failed.", 401);
       return result as T;
     }
     if (path === "/topics") return demoTopics as T;
@@ -119,14 +157,20 @@ export async function api<T>(
     throw new ApiError("Demo mode does not implement this endpoint.", 404);
   }
 
-  const response = await fetch(apiUrl(path), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  const requestUrl = apiUrl(path);
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (caught) {
+    throw networkApiError(caught, requestUrl);
+  }
   if (!response.ok) {
     let message = "Request failed.";
     try {
@@ -135,7 +179,7 @@ export async function api<T>(
     } catch {
       // Keep the fallback message for non-JSON responses.
     }
-    throw new ApiError(message, response.status);
+    throw httpApiError(message, response.status, requestUrl);
   }
   return response.json() as Promise<T>;
 }
@@ -152,15 +196,21 @@ async function downloadFile(token: string, url: string, filename: string, option
     return;
   }
 
-  const response = await fetch(apiUrl(url), {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-  });
-  if (!response.ok) throw new Error("下載失敗，請稍後再試。");
+  const requestUrl = apiUrl(url);
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+  } catch (caught) {
+    throw networkApiError(caught, requestUrl);
+  }
+  if (!response.ok) throw httpApiError("File download failed.", response.status, requestUrl);
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -196,7 +246,7 @@ export async function downloadCsv(token: string, campaignId: number, anonymized 
 
 export function downloadMatrixPng(filename = "materiality-matrix.png") {
   const canvas = document.querySelector<HTMLCanvasElement>(".matrix-wrap canvas");
-  if (!canvas) throw new Error("找不到可下載的矩陣圖。");
+  if (!canvas) throw new Error("Matrix chart is not available.");
   const anchor = document.createElement("a");
   anchor.href = canvas.toDataURL("image/png");
   anchor.download = filename;

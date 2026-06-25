@@ -73,7 +73,7 @@ export function Dashboard({ token }: { token: string }) {
   }
 
   if (loading) return <div className="page-loader"><RefreshCw className="spin" /> 載入重大性儀表板中...</div>;
-  if (!data) return <div className="error-state">{error}<button onClick={load}>重新讀取</button></div>;
+  if (!data) return <div className="error-state"><strong>Dashboard API request failed</strong><span>{error}</span><button onClick={load}>重新讀取</button></div>;
 
   const filteredTopics = data.topics.filter((topic) => categoryFilter === "all" || topic.category === categoryFilter);
   const majorTopics = filteredTopics.filter((topic) => topic.is_final_material_topic);

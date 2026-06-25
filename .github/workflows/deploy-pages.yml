@@ -61,7 +61,7 @@ jobs:
         working-directory: frontend
         env:
           NEXT_PUBLIC_DEMO_MODE: ${{ vars.NEXT_PUBLIC_DEMO_MODE || 'false' }}
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || 'https://university-materiality-api.onrender.com' }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || 'https://university-materiality-platform.onrender.com' }}
           PAGES_BASE_PATH: /university-materiality-platform
         run: npm run build
 

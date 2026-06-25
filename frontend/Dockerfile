@@ -8,7 +8,7 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_DEMO_MODE=false
-ARG NEXT_PUBLIC_API_URL=https://university-materiality-api.onrender.com
+ARG NEXT_PUBLIC_API_URL=https://university-materiality-platform.onrender.com
 ARG PAGES_BASE_PATH=
 ENV NEXT_PUBLIC_DEMO_MODE=$NEXT_PUBLIC_DEMO_MODE
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL

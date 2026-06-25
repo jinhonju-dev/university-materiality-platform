@@ -215,8 +215,8 @@ flowchart LR
 正式網址規劃：
 
 - Frontend: `https://jinhonju-dev.github.io/university-materiality-platform/`
-- Backend API: `https://university-materiality-api.onrender.com`
-- Health check: `https://university-materiality-api.onrender.com/health`
+- Backend API: `https://university-materiality-platform.onrender.com`
+- Health check: `https://university-materiality-platform.onrender.com/health`
 
 ### Frontend: GitHub Pages
 
@@ -226,7 +226,7 @@ Required production build variables:
 
 ```env
 NEXT_PUBLIC_DEMO_MODE=false
-NEXT_PUBLIC_API_URL=https://university-materiality-api.onrender.com
+NEXT_PUBLIC_API_URL=https://university-materiality-platform.onrender.com
 PAGES_BASE_PATH=/university-materiality-platform
 ```
 
@@ -244,7 +244,7 @@ GitHub Actions:
 - In repository Settings -> Pages, use GitHub Actions as the Pages source.
 - Recommended repository Variables:
   - `NEXT_PUBLIC_DEMO_MODE=false`
-  - `NEXT_PUBLIC_API_URL=https://university-materiality-api.onrender.com`
+  - `NEXT_PUBLIC_API_URL=https://university-materiality-platform.onrender.com`
 
 ### Backend: Render FastAPI
 
@@ -263,7 +263,7 @@ APP_MODE=production
 DATABASE_URL=<Supabase PostgreSQL connection string>
 SECRET_KEY=<strong random secret>
 FRONTEND_URL=https://jinhonju-dev.github.io/university-materiality-platform
-CORS_ALLOWED_ORIGINS=https://jinhonju-dev.github.io
+CORS_ALLOWED_ORIGINS=https://jinhonju-dev.github.io,https://university-materiality-platform.onrender.com
 JWT_EXPIRE_MINUTES=120
 SEED_DEMO_ACCOUNTS=false
 INITIAL_ADMIN_ENABLED=true
@@ -389,9 +389,9 @@ Expected:
 
 After Render deploys:
 
-1. Open `https://university-materiality-api.onrender.com/health`.
+1. Open `https://university-materiality-platform.onrender.com/health`.
 2. Confirm it returns `{"status":"ok"}`.
-3. Set GitHub repository variable `NEXT_PUBLIC_API_URL=https://university-materiality-api.onrender.com`.
+3. Set GitHub repository variable `NEXT_PUBLIC_API_URL=https://university-materiality-platform.onrender.com`.
 4. Run the GitHub Pages workflow.
 5. Open `https://jinhonju-dev.github.io/university-materiality-platform/`.
 6. Confirm login and public survey pages call the Render API, not localhost.

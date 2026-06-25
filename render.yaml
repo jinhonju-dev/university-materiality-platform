@@ -18,7 +18,7 @@ services:
       - key: FRONTEND_URL
         value: https://jinhonju-dev.github.io/university-materiality-platform
       - key: CORS_ALLOWED_ORIGINS
-        value: https://jinhonju-dev.github.io
+        value: https://jinhonju-dev.github.io,https://university-materiality-platform.onrender.com
       - key: JWT_EXPIRE_MINUTES
         value: "120"
       - key: SEED_DEMO_ACCOUNTS
