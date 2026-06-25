@@ -5,6 +5,15 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DATABASE_URL_ERROR = (
+    "Invalid DATABASE_URL for production. "
+    "Please set DATABASE_URL in Render Environment Variables. "
+    "Use a Supabase PostgreSQL URL such as postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres. "
+    "If the Supabase password contains special characters, URL encode the password. "
+    "Do not wrap the value in quotes and do not include a DATABASE_URL= prefix."
+)
+
+
 def normalize_origin(value: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme and parsed.netloc:
@@ -49,6 +58,38 @@ class Settings(BaseSettings):
         if self.app_env.lower() != "production" and self.app_mode.lower() != "production":
             origins.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
         return list(dict.fromkeys(origin for origin in origins if origin))
+
+    @property
+    def production_mode(self) -> bool:
+        return self.app_env.lower() == "production" or self.app_mode.lower() == "production"
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        if self.database_url.startswith("postgresql://"):
+            return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return self.database_url
+
+    def validate_database_url(self) -> None:
+        if self.app_env.lower() == "test" or not self.production_mode:
+            return
+        value = self.database_url.strip()
+        invalid_examples = {
+            "",
+            "<Supabase PostgreSQL connection string>",
+            "Supabase PostgreSQL connection string",
+            "postgresql+psycopg://<user>:<password>@<host>:5432/<database>",
+            "postgresql+psycopg://<user>:<password>@<host>:5432/<db>",
+        }
+        if (
+            value in invalid_examples
+            or "<" in value
+            or ">" in value
+            or value.startswith(("'", '"'))
+            or value.endswith(("'", '"'))
+            or value.lower().startswith("database_url=")
+            or not value.startswith(("postgresql+psycopg://", "postgresql://"))
+        ):
+            raise RuntimeError(DATABASE_URL_ERROR)
 
 
 @lru_cache

@@ -282,11 +282,31 @@ Security requirements:
 1. Create a Supabase project.
 2. Open Project Settings -> Database.
 3. Copy the PostgreSQL connection string.
-4. Use the SQLAlchemy/psycopg form in Render:
+4. Paste only the URL value into Render `DATABASE_URL`.
+5. Use either `postgresql+psycopg://...` or the Supabase `postgresql://...` form. The backend normalizes `postgresql://` to the psycopg driver before creating the SQLAlchemy engine.
 
 ```env
-DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+DATABASE_URL=postgresql+psycopg://user:URL_ENCODED_PASSWORD@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
 ```
+
+Correct Render value examples:
+
+```txt
+postgresql+psycopg://postgres.xxxxx:abc%40123@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
+postgresql://postgres.xxxxx:abc%40123@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
+```
+
+Wrong Render value examples:
+
+```txt
+DATABASE_URL=postgresql+psycopg://postgres.xxxxx:abc%40123@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
+"postgresql+psycopg://postgres.xxxxx:abc%40123@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+<Supabase PostgreSQL connection string>
+postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+sqlite:///./materiality.db
+```
+
+If the Supabase password contains special characters, URL encode the password before pasting it into Render. For example, `@` becomes `%40`, `#` becomes `%23`, and `/` becomes `%2F`. Do not add quotes and do not include the `DATABASE_URL=` prefix in the Render value field.
 
 For a fresh MVP database, the FastAPI lifespan currently runs `SQLAlchemy create_all()` and seeds base lookup data. For a formal long-term deployment, use Alembic migrations instead of relying only on `create_all()`.
 

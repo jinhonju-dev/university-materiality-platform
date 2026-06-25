@@ -16,7 +16,7 @@ def reset_app_database(
 ):
     settings = get_settings()
     settings.database_url = f"sqlite:///{tmp_path / name}"
-    settings.app_env = app_mode
+    settings.app_env = "test"
     settings.app_mode = app_mode
     settings.seed_demo_accounts = app_mode == "demo"
     settings.bootstrap_admin_email = "root@nuk.edu.tw"
@@ -248,6 +248,43 @@ def test_production_default_secret_blocks_startup(tmp_path: Path):
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         with TestClient(app):
             pass
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "",
+        "<Supabase PostgreSQL connection string>",
+        "postgresql+psycopg://<user>:<password>@<host>:5432/<database>",
+        "sqlite:///./materiality.db",
+        "DATABASE_URL=postgresql+psycopg://user:pass@host:5432/postgres",
+        '"postgresql+psycopg://user:pass@host:5432/postgres"',
+    ],
+)
+def test_production_database_url_validation_rejects_bad_values(database_url: str):
+    from app.config import Settings
+
+    settings = Settings(
+        app_env="production",
+        app_mode="production",
+        database_url=database_url,
+        secret_key="test-secret-for-unit-tests-32-bytes",
+    )
+    with pytest.raises(RuntimeError, match="Render Environment Variables"):
+        settings.validate_database_url()
+
+
+def test_postgresql_url_is_normalized_to_psycopg_driver():
+    from app.config import Settings
+
+    settings = Settings(
+        app_env="production",
+        app_mode="production",
+        database_url="postgresql://user:pass@example.supabase.co:5432/postgres",
+        secret_key="test-secret-for-unit-tests-32-bytes",
+    )
+    settings.validate_database_url()
+    assert settings.sqlalchemy_database_url == "postgresql+psycopg://user:pass@example.supabase.co:5432/postgres"
 
 
 def test_topic_score_null_subscores_are_not_backfilled(tmp_path: Path):
