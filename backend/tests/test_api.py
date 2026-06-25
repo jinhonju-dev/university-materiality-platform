@@ -13,14 +13,21 @@ def reset_app_database(
     *,
     app_mode: str = "production",
     secret_key: str = "test-secret-for-unit-tests-32-bytes",
+    bootstrap_admin: bool = True,
 ):
     settings = get_settings()
     settings.database_url = f"sqlite:///{tmp_path / name}"
     settings.app_env = "test"
     settings.app_mode = app_mode
     settings.seed_demo_accounts = app_mode == "demo"
-    settings.bootstrap_admin_email = "root@nuk.edu.tw"
-    settings.bootstrap_admin_password = "StrongRootPass123!"
+    settings.bootstrap_admin_email = "root@nuk.edu.tw" if bootstrap_admin else None
+    settings.bootstrap_admin_password = "StrongRootPass123!" if bootstrap_admin else None
+    settings.initial_admin_enabled = False
+    settings.initial_admin_email = None
+    settings.initial_admin_name = "Administrator"
+    settings.initial_admin_password = None
+    settings.initial_admin_force_password_change = True
+    settings.reset_initial_admin_password = False
     settings.secret_key = secret_key
     settings.openai_api_key = None
 
@@ -285,6 +292,96 @@ def test_postgresql_url_is_normalized_to_psycopg_driver():
     )
     settings.validate_database_url()
     assert settings.sqlalchemy_database_url == "postgresql+psycopg://user:pass@example.supabase.co:5432/postgres"
+
+
+def test_initial_admin_from_env_creates_first_super_admin(tmp_path: Path):
+    app = reset_app_database(tmp_path, "initial-admin.db", app_mode="production", bootstrap_admin=False)
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    settings.initial_admin_enabled = True
+    settings.initial_admin_email = "admin@nuk.edu.tw"
+    settings.initial_admin_name = "Admin"
+    settings.initial_admin_password = "StrongInitialPass123!"
+    settings.initial_admin_force_password_change = True
+    settings.reset_initial_admin_password = False
+
+    with TestClient(app):
+        from app.database import SessionLocal
+        from app.models import AuditLog, User
+        from app.security import verify_password
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == "admin@nuk.edu.tw"))
+            assert user is not None
+            assert user.role == "super_admin"
+            assert user.force_password_change is True
+            assert verify_password("StrongInitialPass123!", user.password_hash)
+            audit = db.scalar(select(AuditLog).where(AuditLog.action == "create_initial_admin"))
+            assert audit is not None
+
+
+def test_initial_admin_existing_user_does_not_overwrite_password(tmp_path: Path):
+    app = reset_app_database(tmp_path, "initial-admin-existing.db", app_mode="production")
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    settings.initial_admin_enabled = True
+    settings.initial_admin_email = "root@nuk.edu.tw"
+    settings.initial_admin_name = "Root"
+    settings.initial_admin_password = "DifferentInitialPass123!"
+    settings.initial_admin_force_password_change = True
+    settings.reset_initial_admin_password = False
+
+    with TestClient(app):
+        from app.database import SessionLocal
+        from app.models import User
+        from app.security import verify_password
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == "root@nuk.edu.tw"))
+            assert user is not None
+            assert verify_password("StrongRootPass123!", user.password_hash)
+            assert not verify_password("DifferentInitialPass123!", user.password_hash)
+
+
+def test_initial_admin_reset_flag_overwrites_existing_password(tmp_path: Path):
+    app = reset_app_database(tmp_path, "initial-admin-reset.db", app_mode="production")
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    settings.initial_admin_enabled = True
+    settings.initial_admin_email = "root@nuk.edu.tw"
+    settings.initial_admin_name = "Root"
+    settings.initial_admin_password = "ResetInitialPass123!"
+    settings.initial_admin_force_password_change = True
+    settings.reset_initial_admin_password = True
+
+    with TestClient(app):
+        from app.database import SessionLocal
+        from app.models import AuditLog, User
+        from app.security import verify_password
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == "root@nuk.edu.tw"))
+            assert user is not None
+            assert verify_password("ResetInitialPass123!", user.password_hash)
+            audit = db.scalar(select(AuditLog).where(AuditLog.action == "reset_initial_admin_password"))
+            assert audit is not None
+
+
+def test_initial_admin_rejects_weak_password():
+    from app.initial_admin import validate_initial_admin_password
+
+    with pytest.raises(RuntimeError, match="at least 12"):
+        validate_initial_admin_password("short")
+    with pytest.raises(RuntimeError, match="too weak"):
+        validate_initial_admin_password("password")
+    with pytest.raises(RuntimeError, match="too weak"):
+        validate_initial_admin_password("test1234")
 
 
 def test_topic_score_null_subscores_are_not_backfilled(tmp_path: Path):

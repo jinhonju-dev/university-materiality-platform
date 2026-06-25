@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     seed_demo_accounts: bool = False
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: str | None = None
+    initial_admin_enabled: bool = False
+    initial_admin_email: str | None = None
+    initial_admin_name: str = "Administrator"
+    initial_admin_password: str | None = None
+    initial_admin_force_password_change: bool = True
+    reset_initial_admin_password: bool = False
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

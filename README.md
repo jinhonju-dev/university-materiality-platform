@@ -18,7 +18,7 @@ Production Mode:
 - 不使用 `admin123` / `survey123` 等預設密碼。
 - `SECRET_KEY` 不可使用預設值，否則後端會拒絕啟動。
 - 問卷資料寫入正式資料庫。
-- 第一個 `super_admin` 可透過 `BOOTSTRAP_ADMIN_EMAIL` 與 `BOOTSTRAP_ADMIN_PASSWORD` 建立，密碼會雜湊保存。
+- 第一個 `super_admin` 可透過 Render `INITIAL_ADMIN_*` 環境變數建立，密碼只存在 Render Environment Variables 並以雜湊保存。
 
 ## Roles
 
@@ -154,7 +154,7 @@ Backend:
 - `FRONTEND_URL=https://<github-pages-domain>/<repository-name>`
 - `CORS_ALLOWED_ORIGINS=https://<github-pages-domain>`
 - `SEED_DEMO_ACCOUNTS=false`
-- First administrator: use `python -m app.create_admin --email <email> --name <name>`
+- First administrator: use Render `INITIAL_ADMIN_*` variables or `python -m app.create_admin --email <email> --name <name>`
 - `OPENAI_API_KEY=<optional>`
 
 ## Local Test
@@ -266,6 +266,12 @@ FRONTEND_URL=https://jinhonju-dev.github.io/university-materiality-platform
 CORS_ALLOWED_ORIGINS=https://jinhonju-dev.github.io
 JWT_EXPIRE_MINUTES=120
 SEED_DEMO_ACCOUNTS=false
+INITIAL_ADMIN_ENABLED=true
+INITIAL_ADMIN_EMAIL=admin@nuk.edu.tw
+INITIAL_ADMIN_NAME=Administrator
+INITIAL_ADMIN_PASSWORD=<set-a-strong-password-in-render-only>
+INITIAL_ADMIN_FORCE_PASSWORD_CHANGE=true
+RESET_INITIAL_ADMIN_PASSWORD=false
 OPENAI_API_KEY=
 ```
 
@@ -274,8 +280,17 @@ Security requirements:
 - `SECRET_KEY` must be a strong random value. Production startup rejects `change-this-secret-in-production`, `local-development-secret`, and empty values.
 - `SEED_DEMO_ACCOUNTS=false` in production.
 - Do not use `admin123`, `survey123`, or any fixed default password.
-- Do not commit `DATABASE_URL`, `SECRET_KEY`, or `OPENAI_API_KEY`.
+- Do not commit `DATABASE_URL`, `SECRET_KEY`, `INITIAL_ADMIN_PASSWORD`, or `OPENAI_API_KEY`.
 - CORS should allow only the GitHub Pages origin for production.
+
+Initial administrator bootstrap:
+
+- Set `INITIAL_ADMIN_ENABLED=true` only for the first deployment.
+- `INITIAL_ADMIN_PASSWORD` must be at least 12 characters and must not be a weak password such as `admin123`, `password`, `12345678`, or `test1234`.
+- If `INITIAL_ADMIN_EMAIL` already exists, the app does not create a duplicate and does not overwrite the password.
+- Set `RESET_INITIAL_ADMIN_PASSWORD=true` only when you intentionally want to reset the existing initial admin password from Render environment variables.
+- After the first admin is created successfully, change `INITIAL_ADMIN_ENABLED=false` in Render and redeploy.
+- The database stores only `password_hash`; the plaintext password must exist only in Render Environment Variables.
 
 ### Supabase PostgreSQL
 
@@ -322,6 +337,15 @@ python -m app.create_admin --email admin@nuk.edu.tw --name 管理者
 ```
 
 The command creates or resets an administrator, prints a one-time temporary password, and sets `force_password_change=true`.
+
+If an administrator forgets the password, reset it from Render Shell:
+
+```powershell
+cd backend
+python -m app.reset_admin_password --email admin@nuk.edu.tw
+```
+
+The reset command prints a one-time temporary password and sets `force_password_change=true`.
 
 ### Local Deployment Test
 

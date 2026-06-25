@@ -17,6 +17,7 @@ from .analytics import build_analytics
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .export import create_anonymized_export, create_concern_export, create_csv_export, create_excel_export, create_expert_export
+from .initial_admin import initialize_admin_from_env
 from .matrix_image import create_matrix_png
 from .models import (
     AuditLog,
@@ -87,6 +88,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_database(db)
+        initialize_admin_from_env(db)
     yield
 
 
