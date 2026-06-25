@@ -211,14 +211,15 @@ def stakeholder_metrics(db: Session, campaign: SurveyCampaign | None) -> list[di
 def evaluator_role_metrics(db: Session, campaign: SurveyCampaign | None) -> list[dict]:
     if not campaign:
         return []
+    response_count = func.count(ExpertAssessmentResponse.id)
     rows = db.execute(
-        select(func.coalesce(InvitationCode.evaluator_role, "未分類"), func.count(ExpertAssessmentResponse.id))
+        select(InvitationCode.evaluator_role, response_count)
         .join(ExpertAssessmentResponse, ExpertAssessmentResponse.invitation_code_id == InvitationCode.id)
         .where(ExpertAssessmentResponse.campaign_id == campaign.id)
-        .group_by(func.coalesce(InvitationCode.evaluator_role, "未分類"))
-        .order_by(func.count(ExpertAssessmentResponse.id).desc())
+        .group_by(InvitationCode.evaluator_role)
+        .order_by(response_count.desc())
     ).all()
-    return [{"evaluator_role": role, "count": count} for role, count in rows]
+    return [{"evaluator_role": role or "未分類", "count": count or 0} for role, count in rows]
 
 
 def stakeholder_topic_rows(db: Session, campaign: SurveyCampaign | None) -> list[dict]:

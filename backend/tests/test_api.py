@@ -90,6 +90,21 @@ def test_production_mode_bootstrap_and_no_demo_accounts(tmp_path: Path):
         assert "password_hash" not in users.json()[0]
 
 
+def test_analytics_empty_database_returns_200(tmp_path: Path):
+    app = reset_app_database(tmp_path, "empty-analytics.db", app_mode="production")
+    with TestClient(app) as client:
+        root_headers = login(client, "root@nuk.edu.tw", "StrongRootPass123!")
+        analytics = client.get("/api/analytics", headers=root_headers)
+        assert analytics.status_code == 200
+        body = analytics.json()
+        assert body["response_count"] == 0
+        assert body["concern_response_count"] == 0
+        assert body["expert_response_count"] == 0
+        assert body["evaluator_roles"] == []
+        assert body["completion_rate"] == 0.0
+        assert isinstance(body["topics"], list)
+
+
 def test_roles_invitation_codes_persistence_and_exports(tmp_path: Path):
     app = reset_app_database(tmp_path, "phase2.db", app_mode="production")
     with TestClient(app) as client:
